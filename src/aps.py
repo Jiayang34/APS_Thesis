@@ -2,6 +2,7 @@ from torch.utils.data import random_split
 import torch
 import numpy as np
 
+
 # randomly split the dataset
 def split_data_set(dataset, random_seed):
     if random_seed is not None:
@@ -14,6 +15,7 @@ def split_data_set(dataset, random_seed):
 
     calib_dataset, test_dataset = random_split(dataset, [calib_length, test_length])
     return calib_dataset, test_dataset
+
 
 # conformal function s(x,y) for aps
 def aps_scores(model, dataloader, alpha=0.1, device='cpu'):
@@ -49,10 +51,11 @@ def aps_scores(model, dataloader, alpha=0.1, device='cpu'):
                 labels.append(true_label.item())
     return np.array(scores), np.array(labels)
 
+
 def aps_classification(model, dataloader, q_hat, device='cpu'):
-    aps = []         # probability set
+    aps = []  # probability set
     aps_labels = []  # label set indicated to the probability set
-    labels = []      # true label
+    labels = []  # true label
     with torch.no_grad():
         for images, true_labels in dataloader:
             images, true_labels = images.to(device), true_labels.to(device)
@@ -62,9 +65,12 @@ def aps_classification(model, dataloader, q_hat, device='cpu'):
                 sorted_softmax, sorted_index = torch.sort(softmax, descending=True)
                 cumulative_softmax = torch.cumsum(sorted_softmax, dim=0)
 
+                u = torch.rand_like(cumulative_softmax)
+                # score of label y = cumulative y-1 + u * probability y
+                scores = cumulative_softmax - sorted_softmax + u * sorted_softmax
+
                 # cumulate until meet q_hat and then cut off
-                cutoff_index = torch.searchsorted(cumulative_softmax, q_hat, right=True)
-                cutoff_index = max(cutoff_index.item(), 1) # make sure cutoff_index >= 1
+                cutoff_index = torch.searchsorted(scores, q_hat, right=True)
 
                 # Select all the probabilities and corresponding labels until cut-off index
                 prediction_set_prob = sorted_softmax[:cutoff_index].tolist()
@@ -75,7 +81,8 @@ def aps_classification(model, dataloader, q_hat, device='cpu'):
                 labels.append(true_label.item())
     return aps, aps_labels, labels
 
-def eval_aps(aps_labels,  true_labels):
+
+def eval_aps(aps_labels, true_labels):
     total_set_size = 0
     coveraged = 0
     for aps_label, true_label in zip(aps_labels, true_labels):
