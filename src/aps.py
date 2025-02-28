@@ -24,61 +24,62 @@ def aps_scores(model, dataloader, alpha=0.1, device='cpu'):
     with torch.no_grad():
         for images, true_labels in dataloader:
             images, true_labels = images.to(device), true_labels.to(device)
-            # logistic value
             outputs = model(images)
-            # logistic value -> softmax
-            # dim=1 : convert logistic values for all the classes of the example to the softmax
             softmaxs = torch.softmax(outputs, dim=1)
 
-            for softmax, true_label in zip(softmaxs, true_labels):
-                # descending sort softmax
-                sorted_softmax, sorted_index = torch.sort(softmax, descending=True)
+            # sort softmax scores in descending order and then cumulate
+            sorted_softmax, sorted_index = torch.sort(softmaxs, descending=True, dim=1)
+            cumulative_softmax = torch.cumsum(sorted_softmax, dim=1)
 
-                # get the position of the true label in the sorted softmax
-                true_label_position = (sorted_index == true_label).nonzero(as_tuple=True)[0].item()
-                # independent random variable u ~ Uniform(0, 1)
-                u = np.random.uniform(0, 1)
-                # cumulate sorted softmax
-                cumulative_softmax = torch.cumsum(sorted_softmax, dim=0)  # dim=0 -> cumulate by raw direction
+            # find indices of true labels
+            true_label_positions = (sorted_index == true_labels.unsqueeze(1)).nonzero(as_tuple=True)[1]
 
-                if true_label_position == 0:
-                    conformal_score = u * sorted_softmax[true_label_position].item()  # first softmax is true label
-                else:
-                    conformal_score = cumulative_softmax[true_label_position - 1].item() + u * sorted_softmax[
-                        true_label_position].item()
+            # random variable u with the same size of sorted_softmax
+            u = torch.rand_like(sorted_softmax, dtype=torch.float, device=device)
 
-                scores.append(conformal_score)
-                labels.append(true_label.item())
+            # calculate the scores for all the labels
+            scores_all_labels = cumulative_softmax - sorted_softmax + u * sorted_softmax
+            # select the scores of true label
+            conformal_scores = scores_all_labels.gather(1, true_label_positions.unsqueeze(1)).squeeze(1)
+
+            scores.extend(conformal_scores.cpu().numpy().tolist())
+            labels.extend(true_labels.cpu().numpy().tolist())
+
     return np.array(scores), np.array(labels)
 
 
 def aps_classification(model, dataloader, q_hat, device='cpu'):
-    aps = []  # probability set
+    aps = []         # probability set
     aps_labels = []  # label set indicated to the probability set
-    labels = []  # true label
+    labels = []      # true label
     with torch.no_grad():
         for images, true_labels in dataloader:
             images, true_labels = images.to(device), true_labels.to(device)
             outputs = model(images)
             softmaxs = torch.softmax(outputs, dim=1)
-            for softmax, true_label in zip(softmaxs, true_labels):
-                sorted_softmax, sorted_index = torch.sort(softmax, descending=True)
-                cumulative_softmax = torch.cumsum(sorted_softmax, dim=0)
 
-                u = torch.rand_like(cumulative_softmax)
-                # score of label y = cumulative y-1 + u * probability y
-                scores = cumulative_softmax - sorted_softmax + u * sorted_softmax
+            # sort and cumulate
+            sorted_softmax, sorted_index = torch.sort(softmaxs, descending=True, dim=1)
+            cumulative_softmax = torch.cumsum(sorted_softmax, dim=1)
 
-                # cumulate until meet q_hat and then cut off
-                cutoff_index = torch.searchsorted(scores, q_hat, right=True)
+            # random variable u with the same size of sorted_softmax
+            u = torch.rand_like(sorted_softmax, dtype=torch.float, device=device)
 
-                # Select all the probabilities and corresponding labels until cut-off index
-                prediction_set_prob = sorted_softmax[:cutoff_index].tolist()
-                prediction_set_labels = sorted_index[:cutoff_index].tolist()
+            # compute scores for all labels
+            scores = cumulative_softmax - sorted_softmax + u * sorted_softmax
 
-                aps.append(prediction_set_prob)
-                aps_labels.append(prediction_set_labels)
-                labels.append(true_label.item())
+            # cutoff index = the first index above q_hat
+            cutoff_indices = torch.searchsorted(scores, torch.full_like(scores[:, :1], q_hat), right=True)
+
+            # extract prediction sets
+            batch_size = images.shape[0]
+            for i in range(batch_size):
+                cutoff_index = cutoff_indices[i].item()
+                # prediction set = all the label before cutoff index (exclusive cutoff)
+                aps.append(sorted_softmax[i, :cutoff_index].cpu().tolist())
+                aps_labels.append(sorted_index[i, :cutoff_index].cpu().tolist())
+                labels.append(true_labels[i].item())
+
     return aps, aps_labels, labels
 
 
