@@ -8,11 +8,11 @@ def split_data_set_hyp_opt(dataset, random_seed):
 
     # use one fourth of dataset to optimize hyperparameter
     dataset_length = len(dataset)
-    one_fourth_length = len(dataset) // 8
-    calib_length = one_fourth_length // 2
-    test_length = one_fourth_length - calib_length
+    ten_percent_length = len(dataset) // 10
+    calib_length = ten_percent_length // 2
+    test_length = ten_percent_length - calib_length
 
-    selected_dataset, _ = random_split(dataset, [one_fourth_length, dataset_length - one_fourth_length])
+    selected_dataset, _ = random_split(dataset, [ten_percent_length, dataset_length - ten_percent_length])
     calib_dataset, test_dataset = random_split(selected_dataset, [calib_length, test_length])
     return calib_dataset, test_dataset
 
