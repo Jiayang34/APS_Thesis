@@ -30,23 +30,21 @@ def raps_scores(model, dataloader, alpha=0.1, lambda_reg=0.1, k_reg=5, device='c
             sorted_softmax, sorted_index = torch.sort(softmaxs, descending=True)
             cumulative_softmax = torch.cumsum(sorted_softmax, dim=1)
 
-            # find true label position
+            # find indices of true labels
             true_label_positions = (sorted_index == true_labels.unsqueeze(1)).nonzero(as_tuple=True)[1]
 
-            # uniform random variable u
-            u = torch.rand_like(sorted_softmax.shape[0], device=device)
+            # random variable u with the same size of sorted_softmax
+            u = torch.rand_like(sorted_softmax, dtype=torch.float, device=device)
 
-            # probability of true label(x)
-            prob_true = u * sorted_softmax.gather(1, true_label_positions.unsqueeze(1)).squeeze(1)
-            # cumulative probability of x-1 label
-            cumulative_prob_x_1 = cumulative_softmax.gather(1, (true_label_positions - 1).unsqueeze(1)).squeeze(1)
-            # Compute aps scores
-            aps_scores = torch.where(true_label_positions == 0, prob_true, cumulative_prob_x_1 + prob_true)
+            # calculate the aps-scores for all the labels
+            scores_all_labels = cumulative_softmax - sorted_softmax + u * sorted_softmax
+            # select the aps-scores of true label
+            aps_scores = scores_all_labels.gather(1, true_label_positions.unsqueeze(1)).squeeze(1)
 
             # regularization term
-            regularization_term = lambda_reg * torch.clamp(true_label_positions + 1 - k_reg, min=0)
+            regularization_term = lambda_reg * torch.clamp((true_label_positions + 1 - k_reg).float(), min=0)
 
-            # Compute raps scores = aps score + regularization term
+            # Compute raps-scores = aps-score + regularization term
             conformal_scores = aps_scores + regularization_term
 
             scores.extend(conformal_scores.cpu().tolist())

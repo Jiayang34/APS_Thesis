@@ -104,7 +104,4 @@ def eval_aps(aps_labels,  true_labels):
     samples_amount = len(true_labels)
     average_set_size = total_set_size / samples_amount
     average_coverage = coveraged / samples_amount
-    print(f"Total set size: {total_set_size}")
-    print(f"Total coverage sets: {coveraged}")
-    print(f"Total samples amount: {samples_amount}")
     return average_set_size, average_coverage
