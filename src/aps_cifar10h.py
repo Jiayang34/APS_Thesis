@@ -215,16 +215,16 @@ def raps_classification_cifar10h(model, dataloader, t_cal, lambda_reg=0.1, k_reg
                 cutoff_index = cutoff_indices[i].item()
 
                 if cutoff_index > 0:
-                    pred_labels = sorted_indices[i, :cutoff_index].cpu().tolist()
-                    pred_probs = sorted_softmax[i, :cutoff_index].cpu().tolist()
-                    real_probs = probs[i, pred_labels].cpu().tolist()
+                    pred_label = sorted_indices[i, :cutoff_index].cpu().tolist()
+                    pred_prob = sorted_softmax[i, :cutoff_index].cpu().tolist()
+                    real_prob = probs[i, pred_label].cpu().tolist()
                 else:
-                    pred_labels = []
-                    pred_probs = []
+                    pred_label = []
+                    pred_prob = []
                     real_prob = []
 
-                raps.append(pred_probs)
-                raps_labels.append(pred_labels)
+                raps.append(pred_prob)
+                raps_labels.append(pred_label)
                 real_probs.append(real_prob)
                 labels.append(true_labels[i].item())
 
@@ -268,16 +268,16 @@ def saps_classification_cifar10h(model, dataloader, t_cal, lambda_=0.1, device='
                 selected_indices = (scores[i] <= t_cal).nonzero(as_tuple=True)[0]
 
                 if len(selected_indices) > 0:
-                    pred_labels = sorted_indices[i][selected_indices].cpu().tolist()
-                    pred_probs = sorted_softmax[i][selected_indices].cpu().tolist()
-                    real_prob = probs[i, pred_labels].cpu().tolist()  # 取出真实概率
+                    pred_label = sorted_indices[i][selected_indices].cpu().tolist()
+                    pred_prob = sorted_softmax[i][selected_indices].cpu().tolist()
+                    real_prob = probs[i, pred_label].cpu().tolist()  # 取出真实概率
                 else:
-                    pred_labels = []
-                    pred_probs = []
+                    pred_label = []
+                    pred_prob = []
                     real_prob = []
 
-                saps.append(pred_probs)
-                saps_labels.append(pred_labels)
+                saps.append(pred_prob)
+                saps_labels.append(pred_label)
                 real_probs.append(real_prob)
                 labels.append(true_labels[i].item())
 
