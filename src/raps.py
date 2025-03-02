@@ -2,6 +2,7 @@ from torch.utils.data import random_split
 import torch
 import numpy as np
 
+
 # randomly split the dataset
 def split_data_set(dataset, random_seed):
     if random_seed is not None:
@@ -93,7 +94,8 @@ def raps_classification(model, dataloader, t_cal, lambda_reg=0.1, k_reg=5, devic
                 labels.append(true_labels[i].item())
     return raps, raps_labels, labels
 
-def eval_aps(aps_labels,  true_labels):
+
+def eval_aps(aps_labels, true_labels):
     total_set_size = 0
     coveraged = 0
     for aps_label, true_label in zip(aps_labels, true_labels):
