@@ -8,7 +8,7 @@ def split_data_set_hyp_opt(dataset, random_seed):
 
     # use one fourth of dataset to optimize hyperparameter
     dataset_length = len(dataset)
-    ten_percent_length = len(dataset) // 100
+    ten_percent_length = len(dataset) // 10
     calib_length = ten_percent_length // 2
     test_length = ten_percent_length - calib_length
 
@@ -28,8 +28,8 @@ def lambda_optimization_saps(model, dataset, lambda_values, device='cpu'):
         for i in range(10):
             # run RAPS
             calib_dataset, test_dataset = split_data_set_hyp_opt(dataset, random_seed=i)
-            calib_loader = DataLoader(calib_dataset, batch_size=32, shuffle=False, num_workers=4)
-            test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False, num_workers=4)
+            calib_loader = DataLoader(calib_dataset, batch_size=32, shuffle=False)  # set num_workers = 4 while ImageNet
+            test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False)    # set num_workers = 4 while ImageNet
             calib_scores, _ = saps_scores(model, calib_loader, 0.1, current_lambda, device)
             t_cal = np.quantile(calib_scores, 1 - 0.1)
             aps, aps_labels, true_labels = saps_classification(model, test_loader, t_cal, current_lambda, device)

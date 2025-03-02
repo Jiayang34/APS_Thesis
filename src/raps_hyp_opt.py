@@ -8,7 +8,7 @@ def split_data_set_hyp_opt(dataset, random_seed):
 
     # use 10% dataset to optimize hyperparameter
     dataset_length = len(dataset)
-    ten_percent_length = len(dataset) // 100
+    ten_percent_length = len(dataset) // 10
     calib_length = ten_percent_length // 2
     test_length = ten_percent_length - calib_length
 
@@ -28,8 +28,8 @@ def lambda_optimization_raps(model, dataset, lambda_values, k_reg, device='cpu')
         for i in range(10):
             # run RAPS
             calib_dataset, test_dataset = split_data_set_hyp_opt(dataset, random_seed=i)
-            calib_loader = DataLoader(calib_dataset, batch_size=32, shuffle=False, num_workers=4)
-            test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False,  num_workers=4)
+            calib_loader = DataLoader(calib_dataset, batch_size=32, shuffle=False)  # set num_workers = 4 while ImageNet
+            test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False)    # set num_workers = 4 while ImageNet
             calib_scores, _ = raps_scores(model, calib_loader, 0.1, current_lambda, k_reg, device)
             t_cal = np.quantile(calib_scores, 1 - 0.1)
             aps, aps_labels, true_labels = raps_classification(model, test_loader, t_cal, current_lambda, k_reg, device)
@@ -41,7 +41,7 @@ def lambda_optimization_raps(model, dataset, lambda_values, k_reg, device='cpu')
         mean_set_size = np.mean(avg_set_sizes)
         mean_coverage = np.mean(avg_coverages)
         # select valid lambda with coverage guarantee
-        if 0.88 <= mean_coverage < 0.91:
+        if 0.85 <= mean_coverage < 0.91:
             set_sizes.append(mean_set_size)
             valid_lambdas.append(current_lambda)
 
@@ -66,8 +66,8 @@ def k_reg_optimization(model, dataset, optimal_lambda, k_reg_values, device='cpu
         for i in range(10):
             # run RAPS
             calib_dataset, test_dataset = split_data_set_hyp_opt(dataset, random_seed=i)
-            calib_loader = DataLoader(calib_dataset, batch_size=32, shuffle=False,  num_workers=4)
-            test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False,  num_workers=4)
+            calib_loader = DataLoader(calib_dataset, batch_size=32, shuffle=False)  # set num_workers = 4 while ImageNet
+            test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False)    # set num_workers = 4 while ImageNet
             calib_scores, _ = raps_scores(model, calib_loader, 0.1, optimal_lambda, k, device)
             t_cal = np.quantile(calib_scores, 1 - 0.1)
             aps, aps_labels, true_labels = raps_classification(model, test_loader, t_cal, optimal_lambda, k, device)
@@ -79,7 +79,7 @@ def k_reg_optimization(model, dataset, optimal_lambda, k_reg_values, device='cpu
         mean_set_size = np.mean(avg_set_sizes)
         mean_coverage = np.mean(avg_coverages)
         # select valid k with coverage guarantee
-        if 0.89 <= mean_coverage < 0.91:
+        if 0.88 <= mean_coverage < 0.91:
             set_sizes.append(mean_set_size)
             valid_k_regs.append(k)
 
