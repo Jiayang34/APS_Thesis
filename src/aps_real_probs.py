@@ -15,7 +15,7 @@ class CIFAR10H_Dataset(Dataset):
 
     def __getitem__(self, idx):
         img, label = self.dataset[idx]
-        real_prob = torch.tensor(self.cifar10h_probs[idx], dtype=torch.float32)  # 确保索引完全对应
+        real_prob = torch.tensor(self.cifar10h_probs[idx], dtype=torch.float32)
         return img, label, real_prob
 
 
@@ -40,7 +40,28 @@ def split_data_set_cifar10h(dataset, random_seed):
     return calib_dataset, test_dataset
 
 
-def aps_scores_cifar10h(model, dataloader, alpha=0.1, device='cpu'):
+def split_data_set_imagenet_real(dataset, random_seed):
+    # load real probabilities from ImageNer-Real
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    npy_path = os.path.join(current_dir, "../data/imagenet_count.npy")
+    imagenet_real_probs = np.load(npy_path)
+
+    # pack ImageNet with real probabilities
+    imagenet_real = CIFAR10H_Dataset(dataset, imagenet_real_probs)
+
+    if random_seed is not None:
+        torch.manual_seed(random_seed)  # set input as random seed
+
+    # split image set ---> half for calibration data set, half for test data set
+    dataset_length = len(imagenet_real)
+    calib_length = dataset_length // 2
+    test_length = dataset_length - calib_length
+
+    calib_dataset, test_dataset = random_split(imagenet_real, [calib_length, test_length])
+    return calib_dataset, test_dataset
+
+
+def aps_scores_real_probs(model, dataloader, alpha=0.1, device='cpu'):
     scores = []  # conformal scores of image sets
     labels = []  # true label sets
     with torch.no_grad():
@@ -70,7 +91,7 @@ def aps_scores_cifar10h(model, dataloader, alpha=0.1, device='cpu'):
     return np.array(scores), np.array(labels)
 
 
-def raps_scores_cifar10h(model, dataloader, alpha=0.1, lambda_reg=0.1, k_reg=5, device='cpu'):
+def raps_scores_real_probs(model, dataloader, alpha=0.1, lambda_reg=0.1, k_reg=5, device='cpu'):
     scores = []  # conformal scores of image sets
     labels = []  # true label sets
     with torch.no_grad():
@@ -104,7 +125,8 @@ def raps_scores_cifar10h(model, dataloader, alpha=0.1, lambda_reg=0.1, k_reg=5, 
             labels.extend(true_labels.cpu().tolist())
     return scores, labels
 
-def saps_scores_cifar10h(model, dataloader, alpha=0.1, lambda_=0.1, device='cpu'):
+
+def saps_scores_real_probs(model, dataloader, alpha=0.1, lambda_=0.1, device='cpu'):
     scores = []  # conformal scores of image sets
     labels = []  # true label sets
     with torch.no_grad():
@@ -174,6 +196,53 @@ def aps_classification_cifar10h(model, dataloader, q_hat, device='cpu'):
                 pred_labels = sorted_index[i, :cutoff_index].cpu().tolist()
                 aps_labels.append(pred_labels)
                 real_probs.append(probs[i, pred_labels].cpu().tolist())
+
+    return aps, aps_labels, labels, real_probs
+
+
+def aps_classification_imagenet_real(model, dataloader, q_hat, device='cpu'):
+    aps = []  # probability set
+    aps_labels = []  # label set indicated to the probability set
+    labels = []  # true label
+    real_probs = []  # real probability of prediction set
+    with torch.no_grad():
+        for images, true_labels, probs in dataloader:
+            images, true_labels, probs = images.to(device), true_labels.to(device), probs.to(device)
+            outputs = model(images)
+            softmaxs = torch.softmax(outputs, dim=1)
+
+            # sort and cumulate
+            sorted_softmax, sorted_index = torch.sort(softmaxs, descending=True, dim=1)
+            cumulative_softmax = torch.cumsum(sorted_softmax, dim=1)
+
+            # random variable u with the same size of sorted_softmax
+            u = torch.rand_like(sorted_softmax, dtype=torch.float, device=device)
+
+            # compute scores for all labels
+            scores = cumulative_softmax - sorted_softmax + u * sorted_softmax
+
+            # cutoff index = the first index above q_hat
+            cutoff_indices = torch.searchsorted(scores, torch.full_like(scores[:, :1], q_hat), right=True)
+
+            # extract prediction sets
+            batch_size = images.shape[0]
+            for i in range(batch_size):
+                cutoff_index = cutoff_indices[i].item()
+
+                # prediction set = all the label before cutoff index (exclusive cutoff)
+                aps.append(sorted_softmax[i, :cutoff_index].cpu().tolist())
+                labels.append(true_labels[i].item())
+                # label set and real probability set
+                # e.g. C1 = {1,2,3} ; real prob from ImageNet-Real: Label_1=0.4, Label_2=0.3, Label_3=0.1
+                # real_prob of C1 = {0.4, 0.3, 0.1}
+                pred_labels = sorted_index[i, :cutoff_index].cpu().tolist()
+                aps_labels.append(pred_labels)
+                if torch.all(probs[i] == 0):
+                    # if this sample has no real probability e.g. [0, 0, ..., 0] -> real_probs = [None]
+                    real_probs.append(None)
+                else:
+                    # if APS construct an empty set for this sample -> real_probs = []
+                    real_probs.append(probs[i, pred_labels].cpu().tolist())
 
     return aps, aps_labels, labels, real_probs
 
@@ -284,7 +353,7 @@ def saps_classification_cifar10h(model, dataloader, t_cal, lambda_=0.1, device='
     return saps, saps_labels, labels, real_probs
 
 
-def eval_aps_cifar10h(aps_labels, true_labels):
+def eval_aps_real_probs(aps_labels, true_labels):
     total_set_size = 0
     coveraged = 0
     for aps_label, true_label in zip(aps_labels, true_labels):
