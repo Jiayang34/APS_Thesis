@@ -61,6 +61,27 @@ def split_data_set_imagenet_real(dataset, random_seed):
     return calib_dataset, test_dataset
 
 
+def split_data_set_imagenet_real_normalize(dataset, random_seed):
+    # load real probabilities from ImageNer-Real
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    npy_path = os.path.join(current_dir, "../data/imagenet_count_normalize.npy")
+    imagenet_real_probs = np.load(npy_path)
+
+    # pack ImageNet with real probabilities
+    imagenet_real = CIFAR10H_Dataset(dataset, imagenet_real_probs)
+
+    if random_seed is not None:
+        torch.manual_seed(random_seed)  # set input as random seed
+
+    # split image set ---> half for calibration data set, half for test data set
+    dataset_length = len(imagenet_real)
+    calib_length = dataset_length // 2
+    test_length = dataset_length - calib_length
+
+    calib_dataset, test_dataset = random_split(imagenet_real, [calib_length, test_length])
+    return calib_dataset, test_dataset
+
+
 def aps_scores_real_probs(model, dataloader, alpha=0.1, device='cpu'):
     scores = []  # conformal scores of image sets
     labels = []  # true label sets
