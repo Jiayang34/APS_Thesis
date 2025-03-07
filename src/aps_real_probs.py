@@ -5,17 +5,17 @@ import os
 from torch.utils.data import Dataset
 
 
-class CIFAR10H_Dataset(Dataset):
-    def __init__(self, dataset, cifar10h_probs):
+class Dataset_and_Probs(Dataset):
+    def __init__(self, dataset, npy_files):
         self.dataset = dataset
-        self.cifar10h_probs = cifar10h_probs
+        self.real_probs = npy_files
 
     def __len__(self):
         return len(self.dataset)
 
     def __getitem__(self, idx):
         img, label = self.dataset[idx]
-        real_prob = torch.tensor(self.cifar10h_probs[idx], dtype=torch.float32)
+        real_prob = torch.tensor(self.real_probs[idx], dtype=torch.float32)
         return img, label, real_prob
 
 
@@ -26,7 +26,7 @@ def split_data_set_cifar10h(dataset, random_seed):
     cifar10h_probs = np.load(npy_path)
 
     # pack CIFAR10 with real probabilities
-    cifar10h = CIFAR10H_Dataset(dataset, cifar10h_probs)
+    cifar10h = Dataset_and_Probs(dataset, cifar10h_probs)
 
     if random_seed is not None:
         torch.manual_seed(random_seed)  # set input as random seed
@@ -47,7 +47,7 @@ def split_data_set_imagenet_real(dataset, random_seed):
     imagenet_real_probs = np.load(npy_path)
 
     # pack ImageNet with real probabilities
-    imagenet_real = CIFAR10H_Dataset(dataset, imagenet_real_probs)
+    imagenet_real = Dataset_and_Probs(dataset, imagenet_real_probs)
 
     if random_seed is not None:
         torch.manual_seed(random_seed)  # set input as random seed
@@ -68,7 +68,7 @@ def split_data_set_imagenet_real_normalize(dataset, random_seed):
     imagenet_real_probs = np.load(npy_path)
 
     # pack ImageNet with real probabilities
-    imagenet_real = CIFAR10H_Dataset(dataset, imagenet_real_probs)
+    imagenet_real = Dataset_and_Probs(dataset, imagenet_real_probs)
 
     if random_seed is not None:
         torch.manual_seed(random_seed)  # set input as random seed
@@ -321,6 +321,65 @@ def raps_classification_cifar10h(model, dataloader, t_cal, lambda_reg=0.1, k_reg
     return raps, raps_labels, labels, real_probs
 
 
+def raps_classification_imagenet_real(model, dataloader, t_cal, lambda_reg=0.1, k_reg=5, device='cpu'):
+    raps = []  # probability set
+    raps_labels = []  # label set indicated to the probability set
+    labels = []  # true label
+    real_probs = []  # real probability of prediction set
+    with torch.no_grad():
+        for images, true_labels, probs in dataloader:
+            images, true_labels, probs = images.to(device), true_labels.to(device), probs.to(device)
+            outputs = model(images)
+            softmaxs = torch.softmax(outputs, dim=1)
+
+            # sort softmax probabilities
+            sorted_softmax, sorted_indices = torch.sort(softmaxs, descending=True, dim=1)  # shape: [batch_size, 1000]
+            cumulative_softmax = torch.cumsum(sorted_softmax, dim=1)  # shape: [batch_size, 1000]
+
+            # rank of current sorted probability: [1,2,3,...,1000]
+            rank = torch.arange(1, sorted_softmax.size(1) + 1, device=device).unsqueeze(0)  # shape: [1, 1000]
+            # calculate regularization term
+            regularization_term = lambda_reg * torch.clamp(rank - k_reg, min=0)  # shape: [1, 1000]
+
+            # generate random variable u for all samples
+            u = torch.rand_like(sorted_softmax)  # shape: [batch_size, 1000]
+
+            # E = cumulative[current-1] + u*sorted[current] + regularization
+            # which is equal to: cumulative[current] - sorted[current] + u*sorted[current] + regularization
+            e = cumulative_softmax - sorted_softmax + u * sorted_softmax + regularization_term  # shape: [batch_size, 1000]
+
+            e_less_than_t = e <= t_cal
+            cutoff_indices = torch.sum(e_less_than_t, dim=1)
+
+            # build prediction sets
+            # build prediction sets
+            batch_size = images.shape[0]
+            for i in range(batch_size):
+                cutoff_index = cutoff_indices[i].item()
+
+                if cutoff_index > 0:
+                    pred_label = sorted_indices[i, :cutoff_index].cpu().tolist()
+                    pred_prob = sorted_softmax[i, :cutoff_index].cpu().tolist()
+                    if torch.all(probs[i] == 0):
+                        real_prob = None   # real prob unmarked
+                    else:
+                        real_prob = probs[i, pred_label].cpu().tolist()
+                else:
+                    pred_label = []
+                    pred_prob = []
+                    if torch.all(probs[i] == 0):
+                        real_prob = None    # real prob unmarked
+                    else:
+                        real_prob = []      # real prob marked but APS generate empty set
+
+                raps.append(pred_prob)
+                raps_labels.append(pred_label)
+                real_probs.append(real_prob)
+                labels.append(true_labels[i].item())
+
+    return raps, raps_labels, labels, real_probs
+
+
 def saps_classification_cifar10h(model, dataloader, t_cal, lambda_=0.1, device='cpu'):
     saps = []  # probability set
     saps_labels = []  # label set indicated to the probability set
@@ -360,11 +419,70 @@ def saps_classification_cifar10h(model, dataloader, t_cal, lambda_=0.1, device='
                 if len(selected_indices) > 0:
                     pred_label = sorted_indices[i][selected_indices].cpu().tolist()
                     pred_prob = sorted_softmax[i][selected_indices].cpu().tolist()
-                    real_prob = probs[i, pred_label].cpu().tolist()  # 取出真实概率
+                    real_prob = probs[i, pred_label].cpu().tolist()
                 else:
                     pred_label = []
                     pred_prob = []
                     real_prob = []
+
+                saps.append(pred_prob)
+                saps_labels.append(pred_label)
+                real_probs.append(real_prob)
+                labels.append(true_labels[i].item())
+
+    return saps, saps_labels, labels, real_probs
+
+
+def saps_classification_imagenet_real(model, dataloader, t_cal, lambda_=0.1, device='cpu'):
+    saps = []  # probability set
+    saps_labels = []  # label set indicated to the probability set
+    labels = []  # true label
+    real_probs = []  # real probability of prediction set
+    with torch.no_grad():
+        for images, true_labels, probs in dataloader:
+            images, true_labels, probs = images.to(device), true_labels.to(device), probs.to(device)
+            outputs = model(images)
+            softmax = torch.softmax(outputs, dim=1)
+
+            # sort probabilities
+            sorted_softmax, sorted_indices = torch.sort(softmax, descending=True, dim=1)
+
+            # random variable u(s)
+            u = torch.rand(sorted_softmax.shape, device=device)  # Shape: (batch_size, 100)
+            # random variable for maximal probabilities
+            u_f_max = torch.rand(sorted_softmax.shape[0], device=device).unsqueeze(1)  # Shape: (batch_size, 1)
+
+            # rank of current sorted probability: [1,2,3,...,1000]
+            rank = torch.arange(1, sorted_softmax.size(1) + 1, device=device).unsqueeze(0)  # shape: [1, 100]
+
+            # s = f_max + (o-2+u) * lambda
+            # scores --> all the label has been calculate as non-top-ranked label now
+            f_max = sorted_softmax[:, 0].unsqueeze(1)  # Shape: (batch_size, 1)
+            scores = f_max + ((rank - 2).float() + u) * lambda_  # Shape: (batch_size, 100)
+
+            # replace the firt column with u * f_max
+            scores[:, 0] = (u_f_max * f_max).squeeze(1)  # Shape: (batch_size,)
+
+            # construct prediction sets
+            batch_size = images.shape[0]
+            for i in range(batch_size):
+                # select indices whose scores <= t_cal
+                selected_indices = (scores[i] <= t_cal).nonzero(as_tuple=True)[0]
+
+                if len(selected_indices) > 0:
+                    pred_label = sorted_indices[i][selected_indices].cpu().tolist()
+                    pred_prob = sorted_softmax[i][selected_indices].cpu().tolist()
+                    if torch.all(probs[i] == 0):
+                        real_prob = None  # real prob unmarked
+                    else:
+                        real_prob = probs[i, pred_label].cpu().tolist()
+                else:
+                    pred_label = []
+                    pred_prob = []
+                    if torch.all(probs[i] == 0):
+                        real_prob = None  # real prob unmarked
+                    else:
+                        real_prob = []    # real prob marked but APS generate empty set
 
                 saps.append(pred_prob)
                 saps_labels.append(pred_label)
