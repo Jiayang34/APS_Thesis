@@ -6,6 +6,7 @@ from .saps_hyp_opt import *
 from .temperature_scaling import *
 from .aps_real_probs import *
 from .inception import *
+from .inception_cifar100 import *
 
 __all__ = [lambda_optimization_raps, lambda_optimization_saps, k_reg_optimization,  # Hyperparameter Optimization
            ModelWithTemperature,  # Temperature Scaling
@@ -19,5 +20,6 @@ __all__ = [lambda_optimization_raps, lambda_optimization_saps, k_reg_optimizatio
            aps_classification_imagenet_real, raps_classification_imagenet_real, saps_classification_imagenet_real,
            eval_aps_real_probs,
            # models
-           inception_v3  # inceptionV3 for CIFAR10
+           inception_v3,  # inceptionV3 for CIFAR10
+           inceptionv3()
            ]
