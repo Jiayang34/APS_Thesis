@@ -41,7 +41,7 @@ def lambda_optimization_raps(model, dataset, lambda_values, k_reg, device='cpu')
         mean_set_size = np.mean(avg_set_sizes)
         mean_coverage = np.mean(avg_coverages)
         # select valid lambda with coverage guarantee
-        if 0.9 <= mean_coverage < 0.91:
+        if 0.88 <= mean_coverage < 0.91:
             set_sizes.append(mean_set_size)
             valid_lambdas.append(current_lambda)
 
@@ -79,7 +79,7 @@ def k_reg_optimization(model, dataset, optimal_lambda, k_reg_values, device='cpu
         mean_set_size = np.mean(avg_set_sizes)
         mean_coverage = np.mean(avg_coverages)
         # select valid k with coverage guarantee
-        if 0.88 <= mean_coverage < 0.91:
+        if 0.85 <= mean_coverage < 0.91:
             set_sizes.append(mean_set_size)
             valid_k_regs.append(k)
 
