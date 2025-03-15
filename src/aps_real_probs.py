@@ -3,6 +3,8 @@ import torch
 import numpy as np
 import os
 from torch.utils.data import Dataset
+import seaborn as sb
+from matplotlib import pyplot as plt
 
 
 class Dataset_and_Probs(Dataset):
@@ -507,3 +509,30 @@ def eval_aps_real_probs(aps_labels, true_labels):
     average_set_size = total_set_size / samples_amount
     average_coverage = coveraged / samples_amount
     return average_set_size, average_coverage
+
+
+def hist_cifar10h(all_real_probs_distribution):
+    # sort real probability
+    sorted_probs = np.sort(all_real_probs_distribution)
+
+    # find the peak value ( the most frequent real probability, frequency)
+    y_axis, x_axis = np.histogram(sorted_probs, bins=50)
+    peak_y = max(y_axis)  # frequency
+    peak_x = x_axis[np.argmax(y_axis)]  # the most frequent real probability
+
+    # draw the histogram
+    plt.figure(figsize=(8, 5))
+    sb.histplot(sorted_probs, bins=50, kde=True, edgecolor='black', alpha=0.7)
+    plt.xlabel("Real Probability")
+    plt.ylabel("Frequency")
+    plt.title("Distribution of Real Probability after APS")
+    plt.grid(axis='y', linestyle='--', alpha=0.7)
+
+    # mark the peak
+    plt.axvline(peak_x, color='red', linestyle='--', label=f'Peak at {peak_x:.4f}, Freq={peak_y}')
+    plt.legend()
+
+    plt.show()
+
+    peak_coverage = peak_y / len(sorted_probs) * 100
+    print(f" {peak_y}({peak_coverage: .2f}%) Samples Reached the Peak of Real Probability at {peak_x:.4f} ")
