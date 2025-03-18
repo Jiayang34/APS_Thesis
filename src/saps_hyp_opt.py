@@ -17,7 +17,7 @@ def split_data_set_hyp_opt(dataset, random_seed):
     return calib_dataset, test_dataset
 
 
-def lambda_optimization_saps(model, dataset, lambda_values, device='cpu'):
+def lambda_optimization_saps(model, dataset, lambda_values, device='cpu', alpha=0.1):
     set_sizes = []
     valid_lambdas = []
 
@@ -30,8 +30,8 @@ def lambda_optimization_saps(model, dataset, lambda_values, device='cpu'):
             calib_dataset, test_dataset = split_data_set_hyp_opt(dataset, random_seed=i)
             calib_loader = DataLoader(calib_dataset, batch_size=32, shuffle=False)  # set num_workers = 4 while ImageNet
             test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False)    # set num_workers = 4 while ImageNet
-            calib_scores, _ = saps_scores(model, calib_loader, 0.1, current_lambda, device)
-            t_cal = np.quantile(calib_scores, 1 - 0.1)
+            calib_scores, _ = saps_scores(model, calib_loader, alpha, current_lambda, device)
+            t_cal = np.quantile(calib_scores, 1 - alpha)
             aps, aps_labels, true_labels = saps_classification(model, test_loader, t_cal, current_lambda, device)
             avg_set_size, avg_coverage = eval_aps_hyp_opt(aps_labels, true_labels)
 
@@ -41,7 +41,9 @@ def lambda_optimization_saps(model, dataset, lambda_values, device='cpu'):
         mean_set_size = np.mean(avg_set_sizes)
         mean_coverage = np.mean(avg_coverages)
         # select valid lambda with coverage guarantee
-        if 0.88 <= mean_coverage < 0.91:
+        max_range = 1-alpha+0.01
+        min_range = 1-alpha-0.05
+        if min_range <= mean_coverage < max_range:
             set_sizes.append(mean_set_size)
             valid_lambdas.append(current_lambda)
 

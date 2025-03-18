@@ -17,7 +17,7 @@ def split_data_set_hyp_opt(dataset, random_seed):
     return calib_dataset, test_dataset
 
 
-def lambda_optimization_raps(model, dataset, lambda_values, k_reg, device='cpu'):
+def lambda_optimization_raps(model, dataset, lambda_values, k_reg, device='cpu', alpha=0.1):
     set_sizes = []
     valid_lambdas = []
 
@@ -30,8 +30,8 @@ def lambda_optimization_raps(model, dataset, lambda_values, k_reg, device='cpu')
             calib_dataset, test_dataset = split_data_set_hyp_opt(dataset, random_seed=i)
             calib_loader = DataLoader(calib_dataset, batch_size=32, shuffle=False)  # set num_workers = 4 while ImageNet
             test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False)    # set num_workers = 4 while ImageNet
-            calib_scores, _ = raps_scores(model, calib_loader, 0.1, current_lambda, k_reg, device)
-            t_cal = np.quantile(calib_scores, 1 - 0.1)
+            calib_scores, _ = raps_scores(model, calib_loader, alpha, current_lambda, k_reg, device)
+            t_cal = np.quantile(calib_scores, 1 - alpha)
             aps, aps_labels, true_labels = raps_classification(model, test_loader, t_cal, current_lambda, k_reg, device)
             avg_set_size, avg_coverage = eval_aps_hyp_opt(aps_labels, true_labels)
 
@@ -55,7 +55,7 @@ def lambda_optimization_raps(model, dataset, lambda_values, k_reg, device='cpu')
     return optimal_lambda
 
 
-def k_reg_optimization(model, dataset, optimal_lambda, k_reg_values, device='cpu'):
+def k_reg_optimization(model, dataset, optimal_lambda, k_reg_values, device='cpu', alpha=0.1):
     set_sizes = []
     valid_k_regs = []
 
@@ -68,8 +68,8 @@ def k_reg_optimization(model, dataset, optimal_lambda, k_reg_values, device='cpu
             calib_dataset, test_dataset = split_data_set_hyp_opt(dataset, random_seed=i)
             calib_loader = DataLoader(calib_dataset, batch_size=32, shuffle=False)  # set num_workers = 4 while ImageNet
             test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False)    # set num_workers = 4 while ImageNet
-            calib_scores, _ = raps_scores(model, calib_loader, 0.1, optimal_lambda, k, device)
-            t_cal = np.quantile(calib_scores, 1 - 0.1)
+            calib_scores, _ = raps_scores(model, calib_loader, alpha, optimal_lambda, k, device)
+            t_cal = np.quantile(calib_scores, 1 - alpha)
             aps, aps_labels, true_labels = raps_classification(model, test_loader, t_cal, optimal_lambda, k, device)
             avg_set_size, avg_coverage = eval_aps_hyp_opt(aps_labels, true_labels)
 
