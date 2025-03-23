@@ -82,7 +82,7 @@ def k_reg_optimization(model, dataset, optimal_lambda, k_reg_values, device='cpu
         mean_coverage = np.mean(avg_coverages)
         # select valid lambda with coverage guarantee
         max_range = 1 - alpha + 0.01
-        min_range = 1 - alpha - 0.02
+        min_range = 1 - alpha - 0.01
         if min_range <= mean_coverage < max_range:
             set_sizes.append(mean_set_size)
             valid_k_regs.append(k)
