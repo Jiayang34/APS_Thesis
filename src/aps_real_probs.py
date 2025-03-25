@@ -516,13 +516,13 @@ def hist_cifar10h(all_real_probs_distribution):
     sorted_probs = np.sort(all_real_probs_distribution)
 
     # find the peak value ( the most frequent real probability, frequency)
-    y_axis, x_axis = np.histogram(sorted_probs, bins=50)
+    y_axis, x_axis = np.histogram(sorted_probs, bins=100)
     peak_y = max(y_axis)  # frequency
     peak_x = x_axis[np.argmax(y_axis)]  # the most frequent real probability
 
     # draw the histogram
-    plt.figure(figsize=(8, 5))
-    sb.histplot(sorted_probs, bins=50, kde=True, edgecolor='black', alpha=0.7)
+    plt.figure(figsize=(9, 6))
+    sb.histplot(sorted_probs, bins=100, kde=True, edgecolor='black', alpha=0.7)
     plt.xlabel("Real Probability")
     plt.ylabel("Frequency")
     plt.title("Distribution of Real Probability after APS")

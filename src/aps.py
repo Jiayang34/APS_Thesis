@@ -1,6 +1,7 @@
 from torch.utils.data import random_split
 import torch
 import numpy as np
+from torch.utils.data import DataLoader
 
 
 # randomly split the dataset
@@ -101,3 +102,44 @@ def eval_aps(aps_labels, true_labels):
     print(f"Total coverage sets: {coveraged}")
     print(f"Total samples amount: {samples_amount}")
     return average_set_size, average_coverage
+
+
+def aps_test(model, dataset, device, num_runs=10, alpha=0.1):
+    all_avg_set_sizes = []
+    all_avg_coverages = []
+    print("APS Classification, Start!\n")
+    for i in range(num_runs):
+        print(f"Running experiment {i + 1}/{num_runs}...")
+
+        # split dataset
+        calib_dataset, test_dataset = split_data_set(dataset, random_seed=i)
+
+        # load data set respectively
+        calib_loader = DataLoader(calib_dataset, batch_size=32, shuffle=False)
+        test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False)
+
+        # calculate q_hat
+        calib_scores, _ = aps_scores(model, calib_loader, alpha, device)
+        q_hat = np.quantile(calib_scores, 1 - alpha)  # calculate 1-alpha quantile
+        print(f"q_hat = {q_hat}")
+
+        # construct APS
+        aps, aps_labels, true_labels = aps_classification(model, test_loader, q_hat, device)
+
+        # evaluate APS
+        avg_set_size, avg_coverage = eval_aps(aps_labels, true_labels)
+        print(f"Average Prediction Set Size After APS in runs {i + 1}: {avg_set_size}")
+        print(f"Average Coverage Rate in runs {i + 1}: {avg_coverage}\n")
+
+        # record current result
+        all_avg_set_sizes.append(avg_set_size)
+        all_avg_coverages.append(avg_coverage)
+
+    # calculate the final average result
+    final_avg_set_size = np.mean(all_avg_set_sizes)
+    final_avg_coverage = np.mean(all_avg_coverages)
+    final_set_size_std = np.std(all_avg_set_sizes, ddof=0)
+    final_coverage_std = np.std(all_avg_coverages, ddof=0)
+
+    print(f"Final Average Prediction Set Size: {final_avg_set_size:.2f} ± {final_set_size_std:.2f}")
+    print(f"Final Average Coverage: {final_avg_coverage:.4f} ± {final_coverage_std:.4f}")
