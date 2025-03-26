@@ -27,5 +27,6 @@ __all__ = [lambda_optimization_raps, lambda_optimization_saps, k_reg_optimizatio
 
            # synthetic data
            generate_synthetic_data, train_simple_model, load_synthetic_data, SimplePredictor,
-           SyntheticDataset_and_Probs, aps_synthetic_data
+           SyntheticDataset_and_Probs, aps_synthetic_data, raps_synthetic_data,
+           lambda_optimization_raps_synthetic, k_reg_optimization_synthetic, lambda_optimization_saps_synthetic
            ]

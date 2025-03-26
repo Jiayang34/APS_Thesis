@@ -8,7 +8,9 @@ import numpy as np
 from torch.utils.data import Dataset
 from .aps import split_data_set
 from torch.utils.data import DataLoader
-from .aps_real_probs import aps_scores_real_probs, aps_classification_cifar10h, eval_aps_real_probs, hist_cifar10h
+from .aps_real_probs import (aps_scores_real_probs, aps_classification_cifar10h, eval_aps_real_probs, hist_cifar10h,
+                             raps_scores_real_probs, saps_scores_real_probs, raps_classification_cifar10h,
+                             saps_classification_cifar10h)
 
 
 def generate_synthetic_data(k, save_path):
@@ -26,7 +28,7 @@ def generate_synthetic_data(k, save_path):
     exp_seed = 200
     np.random.seed(exp_seed)
     feature_dim = 64  # feature vector 64×1
-    n = 10000         # 10000 images
+    n = 10000  # 10000 images
 
     # generate n random feature vector
     x = np.random.normal(loc=0.0, scale=1.0, size=(n, feature_dim))
@@ -123,8 +125,9 @@ def train_simple_model(model, train_loader, val_loader, epochs=10, lr=0.001, dev
                 val_correct += (val_preds == true_labels).sum().item()
                 val_total += x.size(0)
 
-        print(f"Epoch {epoch+1}/{epochs} | Train Loss: {train_loss/train_total:.4f}, Acc: {train_correct/train_total:.4f} "
-              f"| Val Loss: {val_loss/val_total:.4f}, Acc: {val_correct/val_total:.4f}")
+        print(
+            f"Epoch {epoch + 1}/{epochs} | Train Loss: {train_loss / train_total:.4f}, Acc: {train_correct / train_total:.4f} "
+            f"| Val Loss: {val_loss / val_total:.4f}, Acc: {val_correct / val_total:.4f}")
 
 
 class SyntheticDataset_and_Probs(Dataset):
@@ -180,6 +183,201 @@ def aps_synthetic_data(model, synthetic_dataset, device, num_runs=10, alpha=0.1)
     print(f"Final Average Prediction Set Size: {final_avg_set_size:.2f} ± {final_set_size_std:.2f}")
     print(f"Final Average Coverage: {final_avg_coverage:.4f} ± {final_coverage_std:.4f}")
     print(f"Final Average Real Probability: {final_avg_real_prob:.4f} ± {final_real_prob_std:.4f}")
-
     hist_cifar10h(all_real_probs_distribution)
 
+
+def raps_synthetic_data(model, synthetic_dataset, device, lambda_=0.1, k_reg=2, num_runs=10, alpha=0.1):
+    all_avg_set_sizes = []
+    all_avg_coverages = []
+    all_avg_real_probs = []
+    all_real_probs_distribution = []
+    print(f"RAPS Classification on Synthetic Data(alpha={alpha}), Start!\n")
+    for i in range(num_runs):
+        print(f"Running experiment {i + 1}/{num_runs}...")
+        calib_dataset, test_dataset = split_data_set(synthetic_dataset, random_seed=i)
+        calib_loader = DataLoader(calib_dataset, batch_size=32, shuffle=False)
+        test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False)
+        calib_scores, _ = raps_scores_real_probs(model, calib_loader, alpha, lambda_, k_reg, device)
+        q_hat = np.quantile(calib_scores, 1 - alpha)
+        aps, aps_labels, true_labels, real_probs = raps_classification_cifar10h(model, test_loader, q_hat, lambda_,
+                                                                                k_reg, device)
+        avg_set_size, avg_coverage = eval_aps_real_probs(aps_labels, true_labels)
+        sum_real_probs = [sum(probs) for probs in real_probs]
+        avg_real_prob = np.mean(sum_real_probs)  # average real probability
+
+        all_avg_set_sizes.append(avg_set_size)
+        all_avg_coverages.append(avg_coverage)
+        all_avg_real_probs.append(avg_real_prob)
+        all_real_probs_distribution.extend(sum_real_probs)
+
+    final_avg_set_size = np.mean(all_avg_set_sizes)
+    final_avg_coverage = np.mean(all_avg_coverages)
+    final_avg_real_prob = np.mean(all_avg_real_probs)
+    final_set_size_std = np.std(all_avg_set_sizes, ddof=0)
+    final_coverage_std = np.std(all_avg_coverages, ddof=0)
+    final_real_prob_std = np.std(all_avg_real_probs, ddof=0)
+
+    print(f"Final Average Prediction Set Size: {final_avg_set_size:.2f} ± {final_set_size_std:.2f}")
+    print(f"Final Average Coverage: {final_avg_coverage:.4f} ± {final_coverage_std:.4f}")
+    print(f"Final Average Real Probability: {final_avg_real_prob:.4f} ± {final_real_prob_std:.4f}")
+    hist_cifar10h(all_real_probs_distribution)
+
+
+def saps_synthetic_data(model, synthetic_dataset, device, lambda_=0.1, num_runs=10, alpha=0.1):
+    all_avg_set_sizes = []
+    all_avg_coverages = []
+    all_avg_real_probs = []
+    all_real_probs_distribution = []
+    print(f"RAPS Classification on Synthetic Data(alpha={alpha}), Start!\n")
+    for i in range(num_runs):
+        print(f"Running experiment {i + 1}/{num_runs}...")
+        calib_dataset, test_dataset = split_data_set(synthetic_dataset, random_seed=i)
+        calib_loader = DataLoader(calib_dataset, batch_size=32, shuffle=False)
+        test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False)
+        calib_scores, _ = saps_scores_real_probs(model, calib_loader, alpha, lambda_, device)
+        q_hat = np.quantile(calib_scores, 1 - alpha)
+        aps, aps_labels, true_labels, real_probs = saps_classification_cifar10h(model, test_loader, q_hat, lambda_,
+                                                                                device)
+        avg_set_size, avg_coverage = eval_aps_real_probs(aps_labels, true_labels)
+        sum_real_probs = [sum(probs) for probs in real_probs]
+        avg_real_prob = np.mean(sum_real_probs)  # average real probability
+
+        all_avg_set_sizes.append(avg_set_size)
+        all_avg_coverages.append(avg_coverage)
+        all_avg_real_probs.append(avg_real_prob)
+        all_real_probs_distribution.extend(sum_real_probs)
+
+    final_avg_set_size = np.mean(all_avg_set_sizes)
+    final_avg_coverage = np.mean(all_avg_coverages)
+    final_avg_real_prob = np.mean(all_avg_real_probs)
+    final_set_size_std = np.std(all_avg_set_sizes, ddof=0)
+    final_coverage_std = np.std(all_avg_coverages, ddof=0)
+    final_real_prob_std = np.std(all_avg_real_probs, ddof=0)
+
+    print(f"Final Average Prediction Set Size: {final_avg_set_size:.2f} ± {final_set_size_std:.2f}")
+    print(f"Final Average Coverage: {final_avg_coverage:.4f} ± {final_coverage_std:.4f}")
+    print(f"Final Average Real Probability: {final_avg_real_prob:.4f} ± {final_real_prob_std:.4f}")
+    hist_cifar10h(all_real_probs_distribution)
+
+
+
+def lambda_optimization_raps_synthetic(model, synthetic_dataset, lambda_values, k_reg, device='cpu', alpha=0.1):
+    set_sizes = []
+    valid_lambdas = []
+
+    for current_lambda in lambda_values:
+        avg_set_sizes = []
+        avg_coverages = []
+
+        for i in range(10):
+            # run RAPS
+            calib_dataset, test_dataset = split_data_set(synthetic_dataset, random_seed=i)
+            calib_loader = DataLoader(calib_dataset, batch_size=32, shuffle=False)
+            test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False)
+            calib_scores, _ = raps_scores_real_probs(model, calib_loader, alpha, current_lambda, k_reg, device)
+            t_cal = np.quantile(calib_scores, 1 - alpha)
+            _, aps_labels, true_labels, _ = raps_classification_cifar10h(model, test_loader, t_cal, current_lambda,
+                                                                         k_reg, device)
+            avg_set_size, avg_coverage = eval_aps_real_probs(aps_labels, true_labels)
+            avg_set_sizes.append(avg_set_size)
+            avg_coverages.append(avg_coverage)
+
+        mean_set_size = np.mean(avg_set_sizes)
+        mean_coverage = np.mean(avg_coverages)
+        # select valid lambda with coverage guarantee
+        max_range = 1 - alpha + 0.01
+        min_range = 1 - alpha - 0.01
+        if min_range <= mean_coverage < max_range:
+            set_sizes.append(mean_set_size)
+            valid_lambdas.append(current_lambda)
+
+    if len(set_sizes) > 0:
+        # optimal lambda has the minimal set size
+        optimal_lambda_index = np.argmin(set_sizes)
+        optimal_lambda = valid_lambdas[optimal_lambda_index]
+    else:
+        optimal_lambda = None  # No lambda with valid coverage guarantee
+
+    return optimal_lambda
+
+
+def k_reg_optimization_synthetic(model, synthetic_dataset, optimal_lambda, k_reg_values, device='cpu', alpha=0.1):
+    set_sizes = []
+    valid_k_regs = []
+
+    for k in k_reg_values:
+        avg_set_sizes = []
+        avg_coverages = []
+
+        for i in range(10):
+            # run RAPS
+            calib_dataset, test_dataset = split_data_set(synthetic_dataset, random_seed=i)
+            calib_loader = DataLoader(calib_dataset, batch_size=32, shuffle=False)  # set num_workers = 4 while ImageNet
+            test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False)  # set num_workers = 4 while ImageNet
+            calib_scores, _ = raps_scores_real_probs(model, calib_loader, alpha, optimal_lambda, k, device)
+            t_cal = np.quantile(calib_scores, 1 - alpha)
+            _, aps_labels, true_labels, _ = raps_classification_cifar10h(model, test_loader, t_cal, optimal_lambda, k,
+                                                                         device)
+            avg_set_size, avg_coverage = eval_aps_real_probs(aps_labels, true_labels)
+
+            avg_set_sizes.append(avg_set_size)
+            avg_coverages.append(avg_coverage)
+
+        mean_set_size = np.mean(avg_set_sizes)
+        mean_coverage = np.mean(avg_coverages)
+        # select valid lambda with coverage guarantee
+        max_range = 1 - alpha + 0.01
+        min_range = 1 - alpha - 0.1
+        if min_range <= mean_coverage < max_range:
+            set_sizes.append(mean_set_size)
+            valid_k_regs.append(k)
+
+    if len(set_sizes) > 0:
+        # optimal k_reg has the minimal set size
+        optimal_k_index = np.argmin(set_sizes)
+        optimal_k = valid_k_regs[optimal_k_index]
+    else:
+        optimal_k = None  # No k_reg with valid coverage guarantee
+
+    return optimal_k
+
+
+def lambda_optimization_saps_synthetic(model, synthetic_dataset, lambda_values, device='cpu', alpha=0.1):
+    set_sizes = []
+    valid_lambdas = []
+
+    for current_lambda in lambda_values:
+        avg_set_sizes = []
+        avg_coverages = []
+
+        for i in range(10):
+            # run RAPS
+            calib_dataset, test_dataset = split_data_set(synthetic_dataset, random_seed=i)
+            calib_loader = DataLoader(calib_dataset, batch_size=32, shuffle=False)  # set num_workers = 4 while ImageNet
+            test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False)    # set num_workers = 4 while ImageNet
+            calib_scores, _ = saps_scores_real_probs(model, calib_loader, alpha, current_lambda, device)
+            t_cal = np.quantile(calib_scores, 1 - alpha)
+            _, aps_labels, true_labels, _ = saps_classification_cifar10h(model, test_loader, t_cal, current_lambda,
+                                                                         device)
+            avg_set_size, avg_coverage = eval_aps_real_probs(aps_labels, true_labels)
+
+            avg_set_sizes.append(avg_set_size)
+            avg_coverages.append(avg_coverage)
+
+        mean_set_size = np.mean(avg_set_sizes)
+        mean_coverage = np.mean(avg_coverages)
+        # select valid lambda with coverage guarantee
+        max_range = 1-alpha+0.01
+        min_range = 1-alpha-0.01
+        if min_range <= mean_coverage < max_range:
+            set_sizes.append(mean_set_size)
+            valid_lambdas.append(current_lambda)
+
+    if len(set_sizes) > 0:
+        # optimal lambda has the minimal set size
+        optimal_lambda_index = np.argmin(set_sizes)
+        optimal_lambda = valid_lambdas[optimal_lambda_index]
+    else:
+        optimal_lambda = None  # No lambda with valid coverage guarantee
+
+    return optimal_lambda
