@@ -20,7 +20,8 @@ __all__ = [lambda_optimization_raps, lambda_optimization_saps, k_reg_optimizatio
            aps_scores_real_probs, raps_scores_real_probs, saps_scores_real_probs,
            aps_classification_imagenet_real, raps_classification_imagenet_real, saps_classification_imagenet_real,
            eval_aps_real_probs,
-           hist_cifar10h,
+           # chart-function
+           hist_cifar10h, scatter_cifar10h,
            # models
            inception_v3,  # inceptionV3 for CIFAR10
            inceptionv3(),

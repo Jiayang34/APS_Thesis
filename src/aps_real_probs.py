@@ -1,3 +1,5 @@
+from collections import Counter
+
 from torch.utils.data import random_split
 import torch
 import numpy as np
@@ -89,12 +91,10 @@ def aps_scores_real_probs(model, dataloader, alpha=0.1, device='cpu'):
     labels = []  # true label sets
     with torch.no_grad():
         for images, true_labels, real_probs in dataloader:
-            images, true_labels = images.to(device), true_labels.to(device)
-            outputs = model(images)
-            softmaxs = torch.softmax(outputs, dim=1)
+            true_labels, real_probs = true_labels.to(device), real_probs.to(device)
 
-            # sort softmax scores in descending order and then cumulate
-            sorted_softmax, sorted_index = torch.sort(softmaxs, descending=True, dim=1)
+            # sort ground-truth real probability in descending order and then cumulate
+            sorted_softmax, sorted_index = torch.sort(real_probs, descending=True, dim=1)
             cumulative_softmax = torch.cumsum(sorted_softmax, dim=1)
 
             # find indices of true labels
@@ -114,17 +114,16 @@ def aps_scores_real_probs(model, dataloader, alpha=0.1, device='cpu'):
     return np.array(scores), np.array(labels)
 
 
+
 def raps_scores_real_probs(model, dataloader, alpha=0.1, lambda_reg=0.1, k_reg=5, device='cpu'):
     scores = []  # conformal scores of image sets
     labels = []  # true label sets
     with torch.no_grad():
         for images, true_labels, real_probs in dataloader:
-            images, true_labels = images.to(device), true_labels.to(device)
-            outputs = model(images)
-            softmaxs = torch.softmax(outputs, dim=1)
+            true_labels, real_probs = true_labels.to(device), real_probs.to(device)
 
             # sort and cumulate
-            sorted_softmax, sorted_index = torch.sort(softmaxs, descending=True)
+            sorted_softmax, sorted_index = torch.sort(real_probs, descending=True)
             cumulative_softmax = torch.cumsum(sorted_softmax, dim=1)
 
             # find indices of true labels
@@ -536,3 +535,37 @@ def hist_cifar10h(all_real_probs_distribution):
 
     peak_coverage = peak_y / len(sorted_probs) * 100
     print(f" {peak_y}({peak_coverage: .2f}%) Samples Reached the Peak of Real Probability at {peak_x:.4f} ")
+
+
+def scatter_cifar10h(aps, real_probs, all_real_probs_distribution):
+    """
+    Scatter plot of real probabilities sum and variance
+    :param aps: probability from model after aps-algorith  [0.7, 0.2] - [label_1, label_2]
+    :param real_probs: real probability of label in aps    [0.7, 0.1] - [label_1, label_2]
+    :param all_real_probs_distribution: sum of real_probs  [0.8]
+    """
+    x_vals = []
+    y_vals = []
+
+    for ap, rp, real_sum in zip(aps, real_probs, all_real_probs_distribution):
+        ap = np.array(ap)
+        rp = np.array(rp)
+
+        if ap.shape != rp.shape:
+            raise ValueError("Shape mismatch between aps and real_probs.")
+
+        if ap.size != 0 and rp.size != 0:
+            diff = ap - rp
+            variance = np.var(diff)
+
+            x_vals.append(variance)
+            y_vals.append(real_sum)
+
+    plt.figure(figsize=(8, 6))
+    plt.scatter(x_vals, y_vals, alpha=0.6, edgecolor='k')
+    plt.xlabel('Variance of (aps - real_probs)')
+    plt.ylabel('Sum of Real Probabilities')
+    plt.title('Scatter: Difference Variance vs Real Prob Sum')
+    plt.grid(True)
+    plt.tight_layout()
+    plt.show()

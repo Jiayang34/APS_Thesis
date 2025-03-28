@@ -10,7 +10,7 @@ from .aps import split_data_set
 from torch.utils.data import DataLoader
 from .aps_real_probs import (aps_scores_real_probs, aps_classification_cifar10h, eval_aps_real_probs, hist_cifar10h,
                              raps_scores_real_probs, saps_scores_real_probs, raps_classification_cifar10h,
-                             saps_classification_cifar10h)
+                             saps_classification_cifar10h, scatter_cifar10h)
 
 
 def generate_synthetic_data(k, save_path):
@@ -85,9 +85,9 @@ class SimplePredictor(nn.Module):
 def load_synthetic_data(pickle_path):
     with open(pickle_path, 'rb') as f:
         data = pickle.load(f)
-    x = data['x']
-    true_labels = data['true_labels']
-    real_probs = data['w_annotated'][1000]  # load real probability with 1000 participants
+    x = data['x']                      # load feature vector
+    true_labels = data['true_labels']  # load true label
+    real_probs = data['w']             # load ground-truth real probability
     return x, true_labels, real_probs
 
 
@@ -147,10 +147,16 @@ class SyntheticDataset_and_Probs(Dataset):
 
 
 def aps_synthetic_data(model, synthetic_dataset, device, num_runs=10, alpha=0.1):
+    # standard result
     all_avg_set_sizes = []
     all_avg_coverages = []
     all_avg_real_probs = []
+    all_q_hat = []
+    # histogram
     all_real_probs_distribution = []
+    # variance-conditional coverage scatter
+    all_real_probs = []
+    all_pred_probs = []
     print(f"APS Classification on Synthetic Data(alpha={alpha}), Start!\n")
 
     for i in range(num_runs):
@@ -160,8 +166,9 @@ def aps_synthetic_data(model, synthetic_dataset, device, num_runs=10, alpha=0.1)
         test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False)
         calib_scores, _ = aps_scores_real_probs(model, calib_loader, alpha, device)
         q_hat = np.quantile(calib_scores, 1 - alpha)
-
         aps, aps_labels, true_labels, real_probs = aps_classification_cifar10h(model, test_loader, q_hat, device)
+        all_pred_probs.extend(aps)
+        all_real_probs.extend(real_probs)
 
         avg_set_size, avg_coverage = eval_aps_real_probs(aps_labels, true_labels)
         sum_real_probs = [sum(probs) for probs in real_probs]
@@ -171,26 +178,38 @@ def aps_synthetic_data(model, synthetic_dataset, device, num_runs=10, alpha=0.1)
         all_avg_coverages.append(avg_coverage)
         all_avg_real_probs.append(avg_real_prob)
         all_real_probs_distribution.extend(sum_real_probs)
+        all_q_hat.append(q_hat)
 
     # calculate the final average result
     final_avg_set_size = np.mean(all_avg_set_sizes)
     final_avg_coverage = np.mean(all_avg_coverages)
     final_avg_real_prob = np.mean(all_avg_real_probs)
+    final_avg_q_hat = np.mean(all_q_hat)
     final_set_size_std = np.std(all_avg_set_sizes, ddof=0)
     final_coverage_std = np.std(all_avg_coverages, ddof=0)
     final_real_prob_std = np.std(all_avg_real_probs, ddof=0)
+    final_q_hat_std = np.std(all_q_hat, ddof=0)
 
+    print(f"Final Average q_hat: {final_avg_q_hat:.4f} ± {final_q_hat_std:.4f}")
     print(f"Final Average Prediction Set Size: {final_avg_set_size:.2f} ± {final_set_size_std:.2f}")
     print(f"Final Average Coverage: {final_avg_coverage:.4f} ± {final_coverage_std:.4f}")
     print(f"Final Average Real Probability: {final_avg_real_prob:.4f} ± {final_real_prob_std:.4f}")
     hist_cifar10h(all_real_probs_distribution)
+    scatter_cifar10h(all_pred_probs, all_real_probs, all_real_probs_distribution)
+
 
 
 def raps_synthetic_data(model, synthetic_dataset, device, lambda_=0.1, k_reg=2, num_runs=10, alpha=0.1):
+    # standard result
     all_avg_set_sizes = []
     all_avg_coverages = []
     all_avg_real_probs = []
+    all_q_hat = []
+    # histogram
     all_real_probs_distribution = []
+    # variance-conditional coverage scatter
+    all_real_probs = []
+    all_pred_probs = []
     print(f"RAPS Classification on Synthetic Data(alpha={alpha}), Start!\n")
     for i in range(num_runs):
         print(f"Running experiment {i + 1}/{num_runs}...")
@@ -201,6 +220,8 @@ def raps_synthetic_data(model, synthetic_dataset, device, lambda_=0.1, k_reg=2, 
         q_hat = np.quantile(calib_scores, 1 - alpha)
         aps, aps_labels, true_labels, real_probs = raps_classification_cifar10h(model, test_loader, q_hat, lambda_,
                                                                                 k_reg, device)
+        all_pred_probs.extend(aps)
+        all_real_probs.extend(real_probs)
         avg_set_size, avg_coverage = eval_aps_real_probs(aps_labels, true_labels)
         sum_real_probs = [sum(probs) for probs in real_probs]
         avg_real_prob = np.mean(sum_real_probs)  # average real probability
@@ -209,18 +230,24 @@ def raps_synthetic_data(model, synthetic_dataset, device, lambda_=0.1, k_reg=2, 
         all_avg_coverages.append(avg_coverage)
         all_avg_real_probs.append(avg_real_prob)
         all_real_probs_distribution.extend(sum_real_probs)
+        all_q_hat.append(q_hat)
 
+    # calculate the final average result
     final_avg_set_size = np.mean(all_avg_set_sizes)
     final_avg_coverage = np.mean(all_avg_coverages)
     final_avg_real_prob = np.mean(all_avg_real_probs)
+    final_avg_q_hat = np.mean(all_q_hat)
     final_set_size_std = np.std(all_avg_set_sizes, ddof=0)
     final_coverage_std = np.std(all_avg_coverages, ddof=0)
     final_real_prob_std = np.std(all_avg_real_probs, ddof=0)
+    final_q_hat_std = np.std(all_q_hat, ddof=0)
 
+    print(f"Final Average q_hat: {final_avg_q_hat:.4f} ± {final_q_hat_std:.4f}")
     print(f"Final Average Prediction Set Size: {final_avg_set_size:.2f} ± {final_set_size_std:.2f}")
     print(f"Final Average Coverage: {final_avg_coverage:.4f} ± {final_coverage_std:.4f}")
     print(f"Final Average Real Probability: {final_avg_real_prob:.4f} ± {final_real_prob_std:.4f}")
     hist_cifar10h(all_real_probs_distribution)
+    scatter_cifar10h(all_pred_probs, all_real_probs, all_real_probs_distribution)
 
 
 def saps_synthetic_data(model, synthetic_dataset, device, lambda_=0.1, num_runs=10, alpha=0.1):
