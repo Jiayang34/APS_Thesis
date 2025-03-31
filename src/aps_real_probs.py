@@ -153,12 +153,10 @@ def saps_scores_real_probs(model, dataloader, alpha=0.1, lambda_=0.1, device='cp
     labels = []  # true label sets
     with torch.no_grad():
         for images, true_labels, real_probs in dataloader:
-            images, true_labels = images.to(device), true_labels.to(device)
-            outputs = model(images)
-            softmaxs = torch.softmax(outputs, dim=1)
+            true_labels, real_probs = true_labels.to(device), real_probs.to(device)
 
             # extract true lables' ranking/positions
-            sorted_softmax, sorted_indices = torch.sort(softmaxs, descending=True, dim=1)
+            sorted_softmax, sorted_indices = torch.sort(real_probs, descending=True, dim=1)
             true_label_positions = (sorted_indices == true_labels.unsqueeze(1)).nonzero(as_tuple=True)[1]
 
             # extract maximal probabilities
@@ -510,39 +508,43 @@ def eval_aps_real_probs(aps_labels, true_labels):
     return average_set_size, average_coverage
 
 
-def hist_cifar10h(all_real_probs_distribution):
+def hist_synthetic(all_real_probs_distribution, alpha=0.1):
     # sort real probability
     sorted_probs = np.sort(all_real_probs_distribution)
 
     # find the peak value ( the most frequent real probability, frequency)
     y_axis, x_axis = np.histogram(sorted_probs, bins=100)
-    peak_y = max(y_axis)  # frequency
-    peak_x = x_axis[np.argmax(y_axis)]  # the most frequent real probability
+
+    # calculate the frequency at sum of real prob = 1-alpha
+    target_x = 1 - alpha
+    bin_index = np.digitize([target_x], x_axis)[0] - 1
+    bin_index = np.clip(bin_index, 0, len(y_axis) - 1)
+    target_y = y_axis[bin_index]
 
     # draw the histogram
     plt.figure(figsize=(9, 6))
     sb.histplot(sorted_probs, bins=100, kde=True, edgecolor='black', alpha=0.7)
-    plt.xlabel("Real Probability")
+    plt.xlabel("Conditional Coverage")
     plt.ylabel("Frequency")
-    plt.title("Distribution of Real Probability after APS")
+    plt.title("Histogram: Conditional Coverage VS Frequency")
     plt.grid(axis='y', linestyle='--', alpha=0.7)
 
-    # mark the peak
-    plt.axvline(peak_x, color='red', linestyle='--', label=f'Peak at {peak_x:.4f}, Freq={peak_y}')
+    # mark the (1-alpha) location
+    plt.axvline(target_x, color='red', linestyle='--', label=f'1-alpha={target_x:.4f}, Freq={target_y}')
     plt.legend()
-
     plt.show()
 
-    peak_coverage = peak_y / len(sorted_probs) * 100
-    print(f" {peak_y}({peak_coverage: .2f}%) Samples Reached the Peak of Real Probability at {peak_x:.4f} ")
+    coverage = target_y / len(sorted_probs) * 100
+    print(f"{target_y} ({coverage:.2f}%) samples reached the real probability at 1-alpha = {target_x:.4f}")
 
 
-def scatter_cifar10h(aps, real_probs, all_real_probs_distribution):
+def scatter_cifar10h(aps, real_probs, all_real_probs_distribution, bin_width=0.01):
     """
     Scatter plot of real probabilities sum and variance
     :param aps: probability from model after aps-algorith  [0.7, 0.2] - [label_1, label_2]
     :param real_probs: real probability of label in aps    [0.7, 0.1] - [label_1, label_2]
     :param all_real_probs_distribution: sum of real_probs  [0.8]
+    :param bin_width: width of interval
     """
     x_vals = []
     y_vals = []
@@ -554,6 +556,7 @@ def scatter_cifar10h(aps, real_probs, all_real_probs_distribution):
         if ap.shape != rp.shape:
             raise ValueError("Shape mismatch between aps and real_probs.")
 
+        # if not an empty set
         if ap.size != 0 and rp.size != 0:
             diff = ap - rp
             variance = np.var(diff)
@@ -561,11 +564,40 @@ def scatter_cifar10h(aps, real_probs, all_real_probs_distribution):
             x_vals.append(variance)
             y_vals.append(real_sum)
 
+    x_vals = np.array(x_vals)
+    y_vals = np.array(y_vals)
+
+    # find the interval [y-bin_width/2,y+bin_width/2] with most y-value -> peak interval
+    y_min, y_max = y_vals.min(), y_vals.max()
+    bins = np.arange(y_min, y_max + bin_width, bin_width)
+    bin_counter, bin_edges = np.histogram(y_vals, bins=bins)
+    peak_bin_index = np.argmax(bin_counter)
+
+    #
+    peak_bin_start = bin_edges[peak_bin_index]
+    peak_bin_end = bin_edges[peak_bin_index + 1]
+    peak_bin_center = (peak_bin_start + peak_bin_end) / 2
+    count = bin_counter[peak_bin_index]
+
+    # draw the scatter diagram
     plt.figure(figsize=(8, 6))
     plt.scatter(x_vals, y_vals, alpha=0.6, edgecolor='k')
-    plt.xlabel('Variance of (aps - real_probs)')
-    plt.ylabel('Sum of Real Probabilities')
-    plt.title('Scatter: Difference Variance vs Real Prob Sum')
+
+    # 添加峰值标注线
+    plt.axhline(y=peak_bin_center, color='red', linestyle='--', linewidth=1)
+    plt.text(
+        x_vals.max() * 0.7,
+        peak_bin_center + 0.005,
+        f"Peak interval ≈ [{peak_bin_start:.3f}, {peak_bin_end:.3f}]\n{count} points",
+        color='red',
+        fontsize=10,
+        bbox=dict(facecolor='white', alpha=0.8, edgecolor='red')
+    )
+
+    plt.xlabel('Variance of (Predictive Probability - Real Probability)')
+    plt.ylabel('Conditional Coverage')
+    plt.title('Scatter: Variance vs Conditional Coverage (with Interval Peak)')
     plt.grid(True)
     plt.tight_layout()
     plt.show()
+
