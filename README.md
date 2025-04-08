@@ -68,3 +68,4 @@ Contribution Sheet:
 - **CIFAR10-H**: draw histograms and scatter-plots for all algorithms and repeat the experiments under two alphas(0.1, 0.05)
 - **Synthetic Data**: Synthetic Datasets were categorized by num_classes(3, 5, 10). For all the datasets, 
 draw histograms and scatter-plots for all algorithms and repeat the experiments under two alphas(0.1, 0.05)
+- **Synthetic Data without temperature**: Experiments on synthetic datasets without temperature scaling.
