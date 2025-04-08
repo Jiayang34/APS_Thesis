@@ -114,7 +114,6 @@ def aps_scores_real_probs(model, dataloader, alpha=0.1, device='cpu'):
     return np.array(scores), np.array(labels)
 
 
-
 def raps_scores_real_probs(model, dataloader, alpha=0.1, lambda_reg=0.1, k_reg=5, device='cpu'):
     scores = []  # conformal scores of image sets
     labels = []  # true label sets
@@ -267,6 +266,40 @@ def aps_classification_imagenet_real(model, dataloader, q_hat, device='cpu'):
     return aps, aps_labels, labels, real_probs
 
 
+def aps_classification_ground_truth(model, dataloader, q_hat, device='cpu'):
+    aps = []         # ground-truth real probability set
+    aps_labels = []  # label set indicated to the probability set
+    labels = []      # true label
+    with torch.no_grad():
+        for images, true_labels, probs in dataloader:
+            true_labels, probs = true_labels.to(device), probs.to(device)
+
+            # sort and cumulate real probability
+            sorted_softmax, sorted_index = torch.sort(probs, descending=True, dim=1)
+            cumulative_softmax = torch.cumsum(sorted_softmax, dim=1)
+
+            # random variable u with the same size of sorted_softmax
+            u = torch.rand_like(sorted_softmax, dtype=torch.float, device=device)
+
+            # compute scores for all labels
+            scores = cumulative_softmax - sorted_softmax + u * sorted_softmax
+
+            # cutoff index = the first index above q_hat
+            cutoff_indices = torch.searchsorted(scores, torch.full_like(scores[:, :1], q_hat), right=True)
+
+            # extract prediction sets
+            batch_size = images.shape[0]
+            for i in range(batch_size):
+                cutoff_index = cutoff_indices[i].item()
+
+                # prediction set = all the label before cutoff index (exclusive cutoff)
+                aps.append(sorted_softmax[i, :cutoff_index].cpu().tolist())
+                aps_labels.append(sorted_index[i, :cutoff_index].cpu().tolist())
+                labels.append(true_labels[i].item())
+
+    return aps, aps_labels, labels
+
+
 def raps_classification_cifar10h(model, dataloader, t_cal, lambda_reg=0.1, k_reg=5, device='cpu'):
     raps = []  # probability set
     raps_labels = []  # label set indicated to the probability set
@@ -318,6 +351,52 @@ def raps_classification_cifar10h(model, dataloader, t_cal, lambda_reg=0.1, k_reg
                 labels.append(true_labels[i].item())
 
     return raps, raps_labels, labels, real_probs
+
+
+def raps_classification_ground_truth(model, dataloader, t_cal, lambda_reg=0.1, k_reg=5, device='cpu'):
+    raps = []  # real probability set
+    raps_labels = []  # label set indicated to the real probability set
+    labels = []  # true label
+    with torch.no_grad():
+        for images, true_labels, probs in dataloader:
+            true_labels, probs = true_labels.to(device), probs.to(device)
+            # sort real probabilities
+            sorted_softmax, sorted_indices = torch.sort(probs, descending=True, dim=1)  # shape: [batch_size, 1000]
+            cumulative_softmax = torch.cumsum(sorted_softmax, dim=1)  # shape: [batch_size, 1000]
+
+            # rank of current sorted probability: [1,2,3,...,1000]
+            rank = torch.arange(1, sorted_softmax.size(1) + 1, device=device).unsqueeze(0)  # shape: [1, 1000]
+            # calculate regularization term
+            regularization_term = lambda_reg * torch.clamp(rank - k_reg, min=0)  # shape: [1, 1000]
+
+            # generate random variable u for all samples
+            u = torch.rand_like(sorted_softmax)  # shape: [batch_size, 1000]
+
+            # E = cumulative[current-1] + u*sorted[current] + regularization
+            # which is equal to: cumulative[current] - sorted[current] + u*sorted[current] + regularization
+            e = cumulative_softmax - sorted_softmax + u * sorted_softmax + regularization_term  # shape: [batch_size, 1000]
+
+            e_less_than_t = e <= t_cal
+            cutoff_indices = torch.sum(e_less_than_t, dim=1)
+
+            # build prediction sets
+            # build prediction sets
+            batch_size = images.shape[0]
+            for i in range(batch_size):
+                cutoff_index = cutoff_indices[i].item()
+
+                if cutoff_index > 0:
+                    pred_label = sorted_indices[i, :cutoff_index].cpu().tolist()
+                    pred_prob = sorted_softmax[i, :cutoff_index].cpu().tolist()
+                else:
+                    pred_label = []
+                    pred_prob = []
+
+                raps.append(pred_prob)
+                raps_labels.append(pred_label)
+                labels.append(true_labels[i].item())
+
+    return raps, raps_labels, labels
 
 
 def raps_classification_imagenet_real(model, dataloader, t_cal, lambda_reg=0.1, k_reg=5, device='cpu'):
@@ -491,6 +570,52 @@ def saps_classification_imagenet_real(model, dataloader, t_cal, lambda_=0.1, dev
     return saps, saps_labels, labels, real_probs
 
 
+def saps_classification_ground_truth(model, dataloader, t_cal, lambda_=0.1, device='cpu'):
+    saps = []  # real probability set
+    saps_labels = []  # label set indicated to the real probability set
+    labels = []  # true label
+    with torch.no_grad():
+        for images, true_labels, probs in dataloader:
+            true_labels, probs = true_labels.to(device), probs.to(device)
+            # sort real probabilities
+            sorted_softmax, sorted_indices = torch.sort(probs, descending=True, dim=1)
+
+            # random variable u(s)
+            u = torch.rand(sorted_softmax.shape, device=device)  # Shape: (batch_size, 100)
+            # random variable for maximal probabilities
+            u_f_max = torch.rand(sorted_softmax.shape[0], device=device).unsqueeze(1)  # Shape: (batch_size, 1)
+
+            # rank of current sorted probability: [1,2,3,...,1000]
+            rank = torch.arange(1, sorted_softmax.size(1) + 1, device=device).unsqueeze(0)  # shape: [1, 100]
+
+            # s = f_max + (o-2+u) * lambda
+            # scores --> all the label has been calculated as non-top-ranked label now
+            f_max = sorted_softmax[:, 0].unsqueeze(1)  # Shape: (batch_size, 1)
+            scores = f_max + ((rank - 2).float() + u) * lambda_  # Shape: (batch_size, 100)
+
+            # replace the first column with u * f_max
+            scores[:, 0] = (u_f_max * f_max).squeeze(1)  # Shape: (batch_size,)
+
+            # construct prediction sets
+            batch_size = images.shape[0]
+            for i in range(batch_size):
+                # select indices whose scores <= t_cal
+                selected_indices = (scores[i] <= t_cal).nonzero(as_tuple=True)[0]
+
+                if len(selected_indices) > 0:
+                    pred_label = sorted_indices[i][selected_indices].cpu().tolist()
+                    pred_prob = sorted_softmax[i][selected_indices].cpu().tolist()
+                else:
+                    pred_label = []
+                    pred_prob = []
+
+                saps.append(pred_prob)
+                saps_labels.append(pred_label)
+                labels.append(true_labels[i].item())
+
+    return saps, saps_labels, labels
+
+
 def eval_aps_real_probs(aps_labels, true_labels):
     total_set_size = 0
     coveraged = 0
@@ -508,18 +633,17 @@ def eval_aps_real_probs(aps_labels, true_labels):
     return average_set_size, average_coverage
 
 
-def hist_synthetic(all_real_probs_distribution, alpha=0.1):
+def hist_synthetic(all_real_probs_distribution):
     # sort real probability
     sorted_probs = np.sort(all_real_probs_distribution)
 
-    # find the peak value ( the most frequent real probability, frequency)
+    # find the peak value ( the frequency of the most common real probability)
     y_axis, x_axis = np.histogram(sorted_probs, bins=100)
+    peak_bin_index = np.argmax(y_axis)
+    peak_y = y_axis[peak_bin_index]
 
-    # calculate the frequency at sum of real prob = 1-alpha
-    target_x = 1 - alpha
-    bin_index = np.digitize([target_x], x_axis)[0] - 1
-    bin_index = np.clip(bin_index, 0, len(y_axis) - 1)
-    target_y = y_axis[bin_index]
+    # calculate tne center x value of peak: (left edge + right edge) / 2
+    peak_x = (x_axis[peak_bin_index] + x_axis[peak_bin_index + 1]) / 2
 
     # draw the histogram
     plt.figure(figsize=(9, 6))
@@ -529,16 +653,17 @@ def hist_synthetic(all_real_probs_distribution, alpha=0.1):
     plt.title("Histogram: Conditional Coverage VS Frequency")
     plt.grid(axis='y', linestyle='--', alpha=0.7)
 
-    # mark the (1-alpha) location
-    plt.axvline(target_x, color='red', linestyle='--', label=f'1-alpha={target_x:.4f}, Freq={target_y}')
+    # mark the peak location
+    plt.axvline(peak_x, color='red', linestyle='--',
+                label=f'Peak at {peak_x:.4f}, Freq={peak_y}')
     plt.legend()
     plt.show()
 
-    coverage = target_y / len(sorted_probs) * 100
-    print(f"{target_y} ({coverage:.2f}%) samples reached the real probability at 1-alpha = {target_x:.4f}")
+    coverage = peak_y / len(sorted_probs) * 100
+    print(f"{peak_y} ({coverage:.2f}%) samples reached the peak conditional coverage at {peak_x:.4f}")
 
 
-def scatter_cifar10h(aps, real_probs, all_real_probs_distribution, bin_width=0.01):
+def scatter_synthetic(aps, real_probs, all_real_probs_distribution):
     """
     Scatter plot of real probabilities sum and variance
     :param aps: probability from model after aps-algorith  [0.7, 0.2] - [label_1, label_2]
@@ -546,8 +671,8 @@ def scatter_cifar10h(aps, real_probs, all_real_probs_distribution, bin_width=0.0
     :param all_real_probs_distribution: sum of real_probs  [0.8]
     :param bin_width: width of interval
     """
-    x_vals = []
-    y_vals = []
+    y_vals = []  # conditional coverage
+    x_vals = []  # total variation distance
 
     for ap, rp, real_sum in zip(aps, real_probs, all_real_probs_distribution):
         ap = np.array(ap)
@@ -558,45 +683,36 @@ def scatter_cifar10h(aps, real_probs, all_real_probs_distribution, bin_width=0.0
 
         # if not an empty set
         if ap.size != 0 and rp.size != 0:
-            diff = ap - rp
-            variance = np.var(diff)
-
-            x_vals.append(variance)
+            tvd = 0.5 * np.sum(np.abs(ap - rp))
             y_vals.append(real_sum)
+            x_vals.append(tvd)
 
+    # transform to np array
     x_vals = np.array(x_vals)
     y_vals = np.array(y_vals)
 
-    # find the interval [y-bin_width/2,y+bin_width/2] with most y-value -> peak interval
-    y_min, y_max = y_vals.min(), y_vals.max()
-    bins = np.arange(y_min, y_max + bin_width, bin_width)
-    bin_counter, bin_edges = np.histogram(y_vals, bins=bins)
-    peak_bin_index = np.argmax(bin_counter)
-
-    #
-    peak_bin_start = bin_edges[peak_bin_index]
-    peak_bin_end = bin_edges[peak_bin_index + 1]
-    peak_bin_center = (peak_bin_start + peak_bin_end) / 2
-    count = bin_counter[peak_bin_index]
+    # find the most common conditional coverage value (the peak)
+    counter = Counter(y_vals)
+    peak_y, peak_count = counter.most_common(1)[0]
 
     # draw the scatter diagram
     plt.figure(figsize=(8, 6))
     plt.scatter(x_vals, y_vals, alpha=0.6, edgecolor='k')
 
-    # 添加峰值标注线
-    plt.axhline(y=peak_bin_center, color='red', linestyle='--', linewidth=1)
+    # draw the peak
+    plt.axhline(y=peak_y, color='red', linestyle='--', linewidth=1)
     plt.text(
         x_vals.max() * 0.7,
-        peak_bin_center + 0.005,
-        f"Peak interval ≈ [{peak_bin_start:.3f}, {peak_bin_end:.3f}]\n{count} points",
+        peak_y + 0.005,
+        f"Peak Conditional Coverage = {peak_y:.3f}\n{peak_count} points",
         color='red',
         fontsize=10,
         bbox=dict(facecolor='white', alpha=0.8, edgecolor='red')
     )
 
-    plt.xlabel('Variance of (Predictive Probability - Real Probability)')
+    plt.xlabel(' Total Variation Distance of (Predictive Probability - Real Probability)')
     plt.ylabel('Conditional Coverage')
-    plt.title('Scatter: Variance vs Conditional Coverage (with Interval Peak)')
+    plt.title('Scatter: TVD vs Conditional Coverage')
     plt.grid(True)
     plt.tight_layout()
     plt.show()
