@@ -56,3 +56,15 @@ Current Result
 |               |avg. Prob|        |        |Frequency|       |        | avg.Prob   |        |        |Frequency|        |        |
 | ResNet50      | 0.7919  | 0.7496 | 0.7408 | 26.34% | 23.74% | 23.58% | 0.9221     | 0.9230 | 0.9223 | 63.81%  | 63.24% | 62.12% |
 | InceptionV3   | 0.8093  | 0.7460 | 0.7257 | 29.90% | 23.44% | 21.61% | 0.9339     | 0.9309 | 0.9253 | 71.31%  | 67.46% | 63.53% |
+
+
+Contribution Sheet:  
+- Model: InceptionV3, ResNet18, ResNet34, ResNet50, VGG16
+- Dataset: CIFAR10, CIFAR100, ImageNet-1k, CIFAR10-H
+- For every combination between model and dataset, **all the algorithms(APS, RAPS and SAPS)** have been tested
+- **CIFAR10**: all the models with two alpha 0.05 and 0.1
+- **CIFAR100**: inception with four alphas(0.05, 0.1, 0.2, 0.3), the others with three alphas(0.05, 0.1, 0.2)
+- **ImageNet**: all the models are tested with three alphas(0.05, 0.1, 0.2)
+- **CIFAR10-H**: draw histograms and scatter-plots for all algorithms and repeat the experiments under two alphas(0.1, 0.05)
+- **Synthetic Data**: Synthetic Datasets were categorized by num_classes(3, 5, 10). For all the datasets, 
+draw histograms and scatter-plots for all algorithms and repeat the experiments under two alphas(0.1, 0.05)
