@@ -296,21 +296,16 @@ def aps_classification_cifar10h(model, dataloader, q_hat, device='cpu'):
             # compute scores for all labels
             scores = cumulative_softmax - sorted_softmax + u * sorted_softmax
 
-            # cutoff index = the first index above q_hat
-            cutoff_indices = torch.searchsorted(scores, torch.full_like(scores[:, :1], q_hat), right=True)
-
             # extract prediction sets
             batch_size = images.shape[0]
             for i in range(batch_size):
-                cutoff_index = cutoff_indices[i].item()
-
-                # prediction set = all the label before cutoff index (exclusive cutoff)
-                aps.append(sorted_softmax[i, :cutoff_index].cpu().tolist())
+                selected_label = scores[i] <= q_hat
+                aps.append(sorted_softmax[i][selected_label].cpu().tolist())
                 labels.append(true_labels[i].item())
                 # label set and real probability set
                 # e.g. C1 = {1,2,3} ; real prob from CIFAR10-H: Label_1=0.4, Label_2=0.3, Label_3=0.1
                 # real_prob of C1 = {0.4, 0.3, 0.1}
-                pred_labels = sorted_index[i, :cutoff_index].cpu().tolist()
+                pred_labels = sorted_index[i][selected_label].cpu().tolist()
                 aps_labels.append(pred_labels)
                 real_probs.append(probs[i, pred_labels].cpu().tolist())
 
@@ -382,17 +377,12 @@ def aps_classification_ground_truth(model, dataloader, q_hat, device='cpu'):
             # compute scores for all labels
             scores = cumulative_softmax - sorted_softmax + u * sorted_softmax
 
-            # cutoff index = the first index above q_hat
-            cutoff_indices = torch.searchsorted(scores, torch.full_like(scores[:, :1], q_hat), right=True)
-
             # extract prediction sets
             batch_size = images.shape[0]
             for i in range(batch_size):
-                cutoff_index = cutoff_indices[i].item()
-
-                # prediction set = all the label before cutoff index (exclusive cutoff)
-                aps.append(sorted_softmax[i, :cutoff_index].cpu().tolist())
-                aps_labels.append(sorted_index[i, :cutoff_index].cpu().tolist())
+                selected_label = scores[i] <= q_hat
+                aps.append(sorted_softmax[i][selected_label].cpu().tolist())
+                aps_labels.append(sorted_index[i][selected_label].cpu().tolist())
                 labels.append(true_labels[i].item())
 
     return aps, aps_labels, labels
@@ -734,14 +724,25 @@ def eval_aps_real_probs(aps_labels, true_labels):
 def hist_synthetic(all_real_probs_distribution):
     # sort real probability
     sorted_probs = np.sort(all_real_probs_distribution)
-
-    # find the peak value ( the frequency of the most common real probability)
+    # calculate histogram
     y_axis, x_axis = np.histogram(sorted_probs, bins=100)
-    peak_bin_index = np.argmax(y_axis)
-    peak_y = y_axis[peak_bin_index]
 
-    # calculate tne center x value of peak: (left edge + right edge) / 2
-    peak_x = (x_axis[peak_bin_index] + x_axis[peak_bin_index + 1]) / 2
+    # find the first and second peak value ( the frequency of the most common real probability)
+    sorted_indices = np.argsort(y_axis)[::-1]  # descending order
+    first_peak_index = sorted_indices[0]
+    second_peak_index = sorted_indices[1]
+
+    # calculate x values at the peaks: (left edge + right edge) / 2
+    first_peak_x = (x_axis[first_peak_index] + x_axis[first_peak_index + 1]) / 2
+    second_peak_x = (x_axis[second_peak_index] + x_axis[second_peak_index + 1]) / 2
+
+    # if first peak in range of first bin (empty set) -> use second peak
+    if 0 <= first_peak_x <= 0.01:
+        peak_x = second_peak_x
+        peak_y = y_axis[second_peak_index]
+    else:
+        peak_x = first_peak_x
+        peak_y = y_axis[first_peak_index]
 
     # draw the histogram
     plt.figure(figsize=(9, 6))
@@ -798,21 +799,29 @@ def scatter_synthetic(aps, real_probs, all_real_probs_distribution):
 
     x_vals = np.array(x_vals)
     y_vals = np.array(y_vals)
+    bin_width = 0.01
 
-    # find the most common conditional coverage value (the peak)
-    counter = Counter(y_vals)
-    peak_y, peak_count = counter.most_common(1)[0]
+    # find the peak conditional coverage (bin)
+    y_min, y_max = y_vals.min(), y_vals.max()
+    bins = np.arange(y_min, y_max + bin_width, bin_width)
+    bin_counts, bin_edges = np.histogram(y_vals, bins=bins)
+    peak_bin_index = np.argmax(bin_counts)
 
-    # draw the scatter diagram
+    peak_bin_start = bin_edges[peak_bin_index]
+    peak_bin_end = bin_edges[peak_bin_index + 1]
+    peak_y_center = (peak_bin_start + peak_bin_end) / 2
+    peak_count = bin_counts[peak_bin_index]
+
+    # draw the scatter plot
     plt.figure(figsize=(8, 6))
     plt.scatter(x_vals, y_vals, alpha=0.6, edgecolor='k')
 
-    # draw the peak
-    plt.axhline(y=peak_y, color='red', linestyle='--', linewidth=1)
+    # Mark the peak (draw a red dashed line at the center of peak bin)
+    plt.axhline(y=peak_y_center, color='red', linestyle='--', linewidth=1)
     plt.text(
         x_vals.max() * 0.7,
-        peak_y + 0.005,
-        f"Peak Conditional Coverage = {peak_y:.3f}\n{peak_count} points",
+        peak_y_center + 0.005,
+        f"Peak Conditional Coverage = {peak_y_center:.3f}\n{peak_count} points",
         color='red',
         fontsize=10,
         bbox=dict(facecolor='white', alpha=0.8, edgecolor='red')
@@ -825,7 +834,7 @@ def scatter_synthetic(aps, real_probs, all_real_probs_distribution):
     plt.tight_layout()
     plt.show()
 
-    print(f"Peak Conditional Coverage = {peak_y:.3f}, with {peak_count} samples")
+    print(f"Peak Conditional Coverage = {peak_y_center:.3f}, with {peak_count} samples")
     # samples information display
     print("\n=== Sample Points in Specific Regions ===")
 
@@ -834,7 +843,7 @@ def scatter_synthetic(aps, real_probs, all_real_probs_distribution):
         "Region 1: low TVD, high Coverage": {'x_range': (0, 0.1), 'y_range': (0.8, 1.0)},
         "Region 2: high TVD, low coverage": {'x_range': (0.2, 0.5), 'y_range': (0, 0.2)},
         "Region 3: medium TVD, medium coverage": {'x_range': (0.3, 0.5), 'y_range': (0.4, 0.8)},
-        "Region 4: high TVD, high coverage": {'x_range': (0.6, 0.8), 'y_range': (0.8, 1.0)},
+        "Region 4: high TVD, high coverage": {'x_range': (0.5, 0.8), 'y_range': (0.8, 1.0)},
     }
 
     # search and output points in each region

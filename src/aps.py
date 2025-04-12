@@ -69,16 +69,13 @@ def aps_classification(model, dataloader, q_hat, device='cpu'):
             # compute scores for all labels
             scores = cumulative_softmax - sorted_softmax + u * sorted_softmax
 
-            # cutoff index = the first index above q_hat
-            cutoff_indices = torch.searchsorted(scores, torch.full_like(scores[:, :1], q_hat), right=True)
-
-            # extract prediction sets
             batch_size = images.shape[0]
             for i in range(batch_size):
-                cutoff_index = cutoff_indices[i].item()
-                # prediction set = all the label before cutoff index (exclusive cutoff)
-                aps.append(sorted_softmax[i, :cutoff_index].cpu().tolist())
-                aps_labels.append(sorted_index[i, :cutoff_index].cpu().tolist())
+                # select all the labels whose score <= q_hat
+                selected_label = scores[i] <= q_hat
+                # construct prediction set
+                aps.append(sorted_softmax[i][selected_label].cpu().tolist())
+                aps_labels.append(sorted_index[i][selected_label].cpu().tolist())
                 labels.append(true_labels[i].item())
 
     return aps, aps_labels, labels
