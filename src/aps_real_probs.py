@@ -832,9 +832,9 @@ def scatter_synthetic(aps, real_probs, all_real_probs_distribution):
     # define the 4 regions
     regions = {
         "Region 1: low TVD, high Coverage": {'x_range': (0, 0.1), 'y_range': (0.8, 1.0)},
-        "Region 2: high tvd, low coverage": {'x_range': (0.2, 0.5), 'y_range': (0, 0.2)},
-        "Region 3: medium tvd, medium coverage": {'x_range': (0.3, 0.5), 'y_range': (0.4, 0.8)},
-        "Region 4: high tvd, high coverage": {'x_range': (0.6, 0.8), 'y_range': (0.8, 1.0)},
+        "Region 2: high TVD, low coverage": {'x_range': (0.2, 0.5), 'y_range': (0, 0.2)},
+        "Region 3: medium TVD, medium coverage": {'x_range': (0.3, 0.5), 'y_range': (0.4, 0.8)},
+        "Region 4: high TVD, high coverage": {'x_range': (0.6, 0.8), 'y_range': (0.8, 1.0)},
     }
 
     # search and output points in each region

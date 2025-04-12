@@ -458,7 +458,7 @@ def saps_synthetic_data_hist(model, synthetic_dataset, device, lambda_=0.1, num_
         if is_ground_truth:
             aps, aps_labels, true_labels = saps_classification_ground_truth(model, test_loader, q_hat, lambda_, device)
         else:
-            aps, aps_labels, true_labels, real_probs = saps_classification_ground_truth(model, test_loader, q_hat, lambda_, device)
+            aps, aps_labels, true_labels, real_probs = saps_classification_cifar10h(model, test_loader, q_hat, lambda_, device)
         avg_set_size, avg_coverage = eval_aps_real_probs(aps_labels, true_labels)
         if is_ground_truth:
             sum_real_probs = [sum(probs) for probs in aps]
