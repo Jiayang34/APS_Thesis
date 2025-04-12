@@ -818,7 +818,7 @@ def scatter_synthetic(aps, real_probs, all_real_probs_distribution):
         bbox=dict(facecolor='white', alpha=0.8, edgecolor='red')
     )
 
-    plt.xlabel('Total Variation Distance between Predictive Probability and Real Probability)')
+    plt.xlabel('Total Variation Distance between Predictive Probability and Real Probability')
     plt.ylabel('Conditional Coverage')
     plt.title('Scatter: TVD vs Conditional Coverage')
     plt.grid(True)
@@ -831,10 +831,10 @@ def scatter_synthetic(aps, real_probs, all_real_probs_distribution):
 
     # define the 4 regions
     regions = {
-        "Region 1: x_range=[0, 0.1] y_range=[0.8, 1.0]": {'x_range': (0, 0.1), 'y_range': (0.8, 1.0)},
-        "Region 2: x_range=[0.2, 0.5] y_range=[0, 0.2]": {'x_range': (0.2, 0.5), 'y_range': (0, 0.2)},
-        "Region 3: x_range=[0.3, 0.5] y_range=[0.4, 0.8]": {'x_range': (0.3, 0.5), 'y_range': (0.4, 0.8)},
-        "Region 4: x_range=[0.6, 0.8] y_range=[0.8, 1.0]": {'x_range': (0.6, 0.8), 'y_range': (0.8, 1.0)},
+        "Region 1: low TVD, high Coverage": {'x_range': (0, 0.1), 'y_range': (0.8, 1.0)},
+        "Region 2: high tvd, low coverage": {'x_range': (0.2, 0.5), 'y_range': (0, 0.2)},
+        "Region 3: medium tvd, medium coverage": {'x_range': (0.3, 0.5), 'y_range': (0.4, 0.8)},
+        "Region 4: high tvd, high coverage": {'x_range': (0.6, 0.8), 'y_range': (0.8, 1.0)},
     }
 
     # search and output points in each region
@@ -855,7 +855,9 @@ def scatter_synthetic(aps, real_probs, all_real_probs_distribution):
             # select 3 points randomly
             selected_samples = random.sample(region_samples, min(3, len(region_samples)))
             for idx, sample in enumerate(selected_samples, start=1):
+                formatted_aps = [f"{ap:.5f}" for ap in sample['aps']]
+                formatted_real_probs = [f"{rp:.5f}" for rp in sample['real_probs']]
                 print(f"Sample {idx}:")
-                print(f"  Predictive Probability Set: {sample['aps']}")
-                print(f"  Real Probability Set      : {sample['real_probs']}")
+                print(f"  Predictive Probability Set: {formatted_aps}")
+                print(f"  Real Probability Set      : {formatted_real_probs}")
 
