@@ -8,10 +8,11 @@ import numpy as np
 from torch.utils.data import Dataset
 from .aps import split_data_set
 from torch.utils.data import DataLoader
-from .aps_real_probs import (aps_scores_real_probs, aps_classification_cifar10h, eval_aps_real_probs, hist_synthetic,
-                             raps_scores_real_probs, saps_scores_real_probs, raps_classification_cifar10h,
+from .aps_real_probs import (aps_scores_ground_truth, aps_classification_cifar10h, eval_aps_real_probs, hist_synthetic,
+                             raps_scores_ground_truth, saps_scores_ground_truth, raps_classification_cifar10h,
                              saps_classification_cifar10h, scatter_synthetic, aps_classification_ground_truth,
-                             raps_classification_ground_truth, saps_classification_ground_truth)
+                             raps_classification_ground_truth, saps_classification_ground_truth, aps_scores_real_probs,
+                             raps_scores_real_probs, saps_scores_real_probs)
 
 
 def generate_synthetic_data(k, save_path, temperature=1.0):
@@ -135,6 +136,24 @@ def train_simple_model(model, train_loader, val_loader, epochs=10, lr=0.001, dev
             f"| Val Loss: {val_loss / val_total:.4f}, Acc: {val_correct / val_total:.4f}")
 
 
+def check_tvd(model, dataset, device='cpu'):
+    total_tvds = 0.0
+    total_samples = 0
+    with torch.no_grad():
+        for images, true_labels, real_probs in dataset:
+            images, real_probs = images.to(device), real_probs.to(device)
+            outputs = model(images)
+            pred_probs = torch.softmax(outputs, dim=1)
+
+            tvds = 0.5 * torch.sum(torch.abs(pred_probs - real_probs), dim=1)
+            total_tvds += tvds.sum().item()
+            total_samples += images.size(0)
+
+    mean_tvd = total_tvds / total_samples
+    print(f"Total Variation Distance: {total_tvds: .4f}")
+    print(f"Average Total Variation Distance: {mean_tvd: .4f}")
+
+
 class SyntheticDataset_and_Probs(Dataset):
     def __init__(self, features, labels, real_probs):
         self.features = features
@@ -203,7 +222,7 @@ def aps_synthetic_data_scatter(model, synthetic_dataset, device, num_runs=10, al
     scatter_synthetic(all_pred_probs, all_real_probs, all_real_probs_distribution)
 
 
-def aps_synthetic_data_hist(model, synthetic_dataset, device, num_runs=10, alpha=0.1):
+def aps_synthetic_data_hist(model, synthetic_dataset, device, num_runs=10, alpha=0.1, is_ground_truth=True):
     # standard result
     all_avg_set_sizes = []
     all_avg_coverages = []
@@ -218,13 +237,23 @@ def aps_synthetic_data_hist(model, synthetic_dataset, device, num_runs=10, alpha
         calib_dataset, test_dataset = split_data_set(synthetic_dataset, random_seed=i)
         calib_loader = DataLoader(calib_dataset, batch_size=32, shuffle=False)
         test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False)
-        calib_scores, _ = aps_scores_real_probs(model, calib_loader, alpha, device)
+        if is_ground_truth:
+            calib_scores, _ = aps_scores_ground_truth(model, calib_loader, alpha, device)
+        else:
+            calib_scores, _ = aps_scores_real_probs(model, calib_loader, alpha, device)
         q_hat = np.quantile(calib_scores, 1 - alpha)
-        aps, aps_labels, true_labels = aps_classification_ground_truth(model, test_loader, q_hat, device)
+        if is_ground_truth:
+            aps, aps_labels, true_labels = aps_classification_ground_truth(model, test_loader, q_hat, device)
+        else:
+            aps, aps_labels, true_labels, real_probs = aps_classification_cifar10h(model, test_loader, q_hat, device)
 
         avg_set_size, avg_coverage = eval_aps_real_probs(aps_labels, true_labels)
-        sum_real_probs = [sum(probs) for probs in aps]
-        avg_real_prob = np.mean(sum_real_probs)
+        if is_ground_truth:
+            sum_real_probs = [sum(probs) for probs in aps]
+            avg_real_prob = np.mean(sum_real_probs)
+        else:
+            sum_real_probs = [sum(real_prob) for real_prob in real_probs]
+            avg_real_prob = np.mean(sum_real_probs)
 
         all_avg_set_sizes.append(avg_set_size)
         all_avg_coverages.append(avg_coverage)
@@ -299,7 +328,7 @@ def raps_synthetic_data_scatter(model, synthetic_dataset, device, lambda_=0.1, k
     scatter_synthetic(all_pred_probs, all_real_probs, all_real_probs_distribution)
 
 
-def raps_synthetic_data_hist(model, synthetic_dataset, device, lambda_=0.1, k_reg=2, num_runs=10, alpha=0.1):
+def raps_synthetic_data_hist(model, synthetic_dataset, device, lambda_=0.1, k_reg=2, num_runs=10, alpha=0.1, is_ground_truth=True):
     # standard result
     all_avg_set_sizes = []
     all_avg_coverages = []
@@ -313,13 +342,26 @@ def raps_synthetic_data_hist(model, synthetic_dataset, device, lambda_=0.1, k_re
         calib_dataset, test_dataset = split_data_set(synthetic_dataset, random_seed=i)
         calib_loader = DataLoader(calib_dataset, batch_size=32, shuffle=False)
         test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False)
-        calib_scores, _ = raps_scores_real_probs(model, calib_loader, alpha, lambda_, k_reg, device)
+        if is_ground_truth:
+            calib_scores, _ = raps_scores_ground_truth(model, calib_loader, alpha, lambda_, k_reg, device)
+        else:
+            calib_scores, _ = raps_scores_real_probs(model, calib_loader, alpha, lambda_, k_reg, device)
         q_hat = np.quantile(calib_scores, 1 - alpha)
-        aps, aps_labels, true_labels= raps_classification_ground_truth(model, test_loader, q_hat, lambda_,
+
+        if is_ground_truth:
+            aps, aps_labels, true_labels= raps_classification_ground_truth(model, test_loader, q_hat, lambda_,
                                                                                 k_reg, device)
+        else:
+            aps, aps_labels, true_labels, real_probs = raps_classification_cifar10h(model, test_loader, q_hat, lambda_,
+                                                                            k_reg, device)
+
         avg_set_size, avg_coverage = eval_aps_real_probs(aps_labels, true_labels)
-        sum_real_probs = [sum(probs) for probs in aps]
-        avg_real_prob = np.mean(sum_real_probs)  # average real probability
+        if is_ground_truth:
+            sum_real_probs = [sum(probs) for probs in aps]
+            avg_real_prob = np.mean(sum_real_probs)
+        else:
+            sum_real_probs = [sum(real_prob) for real_prob in real_probs]
+            avg_real_prob = np.mean(sum_real_probs)
 
         all_avg_set_sizes.append(avg_set_size)
         all_avg_coverages.append(avg_coverage)
@@ -394,7 +436,7 @@ def saps_synthetic_data_scatter(model, synthetic_dataset, device, lambda_=0.1, n
     scatter_synthetic(all_pred_probs, all_real_probs, all_real_probs_distribution)
 
 
-def saps_synthetic_data_hist(model, synthetic_dataset, device, lambda_=0.1, num_runs=10, alpha=0.1):
+def saps_synthetic_data_hist(model, synthetic_dataset, device, lambda_=0.1, num_runs=10, alpha=0.1, is_ground_truth=True):
     # standard result
     all_avg_set_sizes = []
     all_avg_coverages = []
@@ -408,12 +450,22 @@ def saps_synthetic_data_hist(model, synthetic_dataset, device, lambda_=0.1, num_
         calib_dataset, test_dataset = split_data_set(synthetic_dataset, random_seed=i)
         calib_loader = DataLoader(calib_dataset, batch_size=32, shuffle=False)
         test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False)
-        calib_scores, _ = saps_scores_real_probs(model, calib_loader, alpha, lambda_, device)
+        if is_ground_truth:
+            calib_scores, _ = saps_scores_ground_truth(model, calib_loader, alpha, lambda_, device)
+        else:
+            calib_scores, _ = saps_scores_real_probs(model, calib_loader, alpha, lambda_, device)
         q_hat = np.quantile(calib_scores, 1 - alpha)
-        aps, aps_labels, true_labels = saps_classification_ground_truth(model, test_loader, q_hat, lambda_, device)
+        if is_ground_truth:
+            aps, aps_labels, true_labels = saps_classification_ground_truth(model, test_loader, q_hat, lambda_, device)
+        else:
+            aps, aps_labels, true_labels, real_probs = saps_classification_ground_truth(model, test_loader, q_hat, lambda_, device)
         avg_set_size, avg_coverage = eval_aps_real_probs(aps_labels, true_labels)
-        sum_real_probs = [sum(probs) for probs in aps]
-        avg_real_prob = np.mean(sum_real_probs)  # average real probability
+        if is_ground_truth:
+            sum_real_probs = [sum(probs) for probs in aps]
+            avg_real_prob = np.mean(sum_real_probs)
+        else:
+            sum_real_probs = [sum(real_prob) for real_prob in real_probs]
+            avg_real_prob = np.mean(sum_real_probs)
 
         all_avg_set_sizes.append(avg_set_size)
         all_avg_coverages.append(avg_coverage)
@@ -451,7 +503,7 @@ def lambda_optimization_raps_synthetic(model, synthetic_dataset, lambda_values, 
             calib_dataset, test_dataset = split_data_set(synthetic_dataset, random_seed=i)
             calib_loader = DataLoader(calib_dataset, batch_size=32, shuffle=False)
             test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False)
-            calib_scores, _ = raps_scores_real_probs(model, calib_loader, alpha, current_lambda, k_reg, device)
+            calib_scores, _ = raps_scores_ground_truth(model, calib_loader, alpha, current_lambda, k_reg, device)
             t_cal = np.quantile(calib_scores, 1 - alpha)
             _, aps_labels, true_labels, _ = raps_classification_cifar10h(model, test_loader, t_cal, current_lambda,
                                                                          k_reg, device)
@@ -492,7 +544,7 @@ def k_reg_optimization_synthetic(model, synthetic_dataset, optimal_lambda, k_reg
             calib_dataset, test_dataset = split_data_set(synthetic_dataset, random_seed=i)
             calib_loader = DataLoader(calib_dataset, batch_size=32, shuffle=False)  # set num_workers = 4 while ImageNet
             test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False)  # set num_workers = 4 while ImageNet
-            calib_scores, _ = raps_scores_real_probs(model, calib_loader, alpha, optimal_lambda, k, device)
+            calib_scores, _ = raps_scores_ground_truth(model, calib_loader, alpha, optimal_lambda, k, device)
             t_cal = np.quantile(calib_scores, 1 - alpha)
             _, aps_labels, true_labels, _ = raps_classification_cifar10h(model, test_loader, t_cal, optimal_lambda, k,
                                                                          device)
@@ -533,7 +585,7 @@ def lambda_optimization_saps_synthetic(model, synthetic_dataset, lambda_values, 
             calib_dataset, test_dataset = split_data_set(synthetic_dataset, random_seed=i)
             calib_loader = DataLoader(calib_dataset, batch_size=32, shuffle=False)  # set num_workers = 4 while ImageNet
             test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False)    # set num_workers = 4 while ImageNet
-            calib_scores, _ = saps_scores_real_probs(model, calib_loader, alpha, current_lambda, device)
+            calib_scores, _ = saps_scores_ground_truth(model, calib_loader, alpha, current_lambda, device)
             t_cal = np.quantile(calib_scores, 1 - alpha)
             _, aps_labels, true_labels, _ = saps_classification_cifar10h(model, test_loader, t_cal, current_lambda,
                                                                          device)

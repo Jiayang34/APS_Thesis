@@ -19,7 +19,7 @@ __all__ = [lambda_optimization_raps, lambda_optimization_saps, k_reg_optimizatio
            split_data_set_cifar10h, split_data_set_imagenet_real, split_data_set_imagenet_real_normalize,
            aps_classification_cifar10h, raps_classification_cifar10h, saps_classification_cifar10h,
            aps_classification_ground_truth, raps_classification_ground_truth, saps_classification_ground_truth,
-           aps_scores_real_probs, raps_scores_real_probs, saps_scores_real_probs,
+           aps_scores_ground_truth, raps_scores_ground_truth, saps_scores_ground_truth,
            aps_classification_imagenet_real, raps_classification_imagenet_real, saps_classification_imagenet_real,
            eval_aps_real_probs,
            # chart-function

@@ -7,6 +7,7 @@ import os
 from torch.utils.data import Dataset
 import seaborn as sb
 from matplotlib import pyplot as plt
+import random
 
 
 class Dataset_and_Probs(Dataset):
@@ -86,7 +87,7 @@ def split_data_set_imagenet_real_normalize(dataset, random_seed):
     return calib_dataset, test_dataset
 
 
-def aps_scores_real_probs(model, dataloader, alpha=0.1, device='cpu'):
+def aps_scores_ground_truth(model, dataloader, alpha=0.1, device='cpu'):
     scores = []  # conformal scores of image sets
     labels = []  # true label sets
     with torch.no_grad():
@@ -114,7 +115,37 @@ def aps_scores_real_probs(model, dataloader, alpha=0.1, device='cpu'):
     return np.array(scores), np.array(labels)
 
 
-def raps_scores_real_probs(model, dataloader, alpha=0.1, lambda_reg=0.1, k_reg=5, device='cpu'):
+def aps_scores_real_probs(model, dataloader, alpha=0.1, device='cpu'):
+    scores = []  # conformal scores of image sets
+    labels = []  # true label sets
+    with torch.no_grad():
+        for images, true_labels, real_probs in dataloader:
+            images, true_labels, real_probs = images.to(device), true_labels.to(device), real_probs.to(device)
+            outputs = model(images)
+            softmaxs = torch.softmax(outputs, dim=1)
+
+            # sort softmax probability in descending order and then cumulate
+            sorted_softmax, sorted_index = torch.sort(softmaxs, descending=True, dim=1)
+            cumulative_softmax = torch.cumsum(sorted_softmax, dim=1)
+
+            # find indices of true labels
+            true_label_positions = (sorted_index == true_labels.unsqueeze(1)).nonzero(as_tuple=True)[1]
+
+            # random variable u with the same size of sorted_softmax
+            u = torch.rand_like(sorted_softmax, dtype=torch.float, device=device)
+
+            # calculate the scores for all the labels
+            scores_all_labels = cumulative_softmax - sorted_softmax + u * sorted_softmax
+            # select the scores of true label
+            conformal_scores = scores_all_labels.gather(1, true_label_positions.unsqueeze(1)).squeeze(1)
+
+            scores.extend(conformal_scores.cpu().numpy().tolist())
+            labels.extend(true_labels.cpu().numpy().tolist())
+
+    return np.array(scores), np.array(labels)
+
+
+def raps_scores_ground_truth(model, dataloader, alpha=0.1, lambda_reg=0.1, k_reg=5, device='cpu'):
     scores = []  # conformal scores of image sets
     labels = []  # true label sets
     with torch.no_grad():
@@ -142,6 +173,73 @@ def raps_scores_real_probs(model, dataloader, alpha=0.1, lambda_reg=0.1, k_reg=5
             # Compute raps-scores = aps-score + regularization term
             conformal_scores = aps_scores + regularization_term
 
+            scores.extend(conformal_scores.cpu().tolist())
+            labels.extend(true_labels.cpu().tolist())
+    return scores, labels
+
+
+def raps_scores_real_probs(model, dataloader, alpha=0.1, lambda_reg=0.1, k_reg=5, device='cpu'):
+    scores = []  # conformal scores of image sets
+    labels = []  # true label sets
+    with torch.no_grad():
+        for images, true_labels, real_probs in dataloader:
+            images, true_labels, real_probs = images.to(device), true_labels.to(device), real_probs.to(device)
+            outputs = model(images)
+            softmaxs = torch.softmax(outputs, dim=1)
+
+            # sort and cumulate
+            sorted_softmax, sorted_index = torch.sort(softmaxs, descending=True)
+            cumulative_softmax = torch.cumsum(sorted_softmax, dim=1)
+
+            # find indices of true labels
+            true_label_positions = (sorted_index == true_labels.unsqueeze(1)).nonzero(as_tuple=True)[1]
+
+            # random variable u with the same size of sorted_softmax
+            u = torch.rand_like(sorted_softmax, dtype=torch.float, device=device)
+
+            # calculate the aps-scores for all the labels
+            scores_all_labels = cumulative_softmax - sorted_softmax + u * sorted_softmax
+            # select the aps-scores of true label
+            aps_scores = scores_all_labels.gather(1, true_label_positions.unsqueeze(1)).squeeze(1)
+
+            # regularization term
+            regularization_term = lambda_reg * torch.clamp((true_label_positions + 1 - k_reg).float(), min=0)
+
+            # Compute raps-scores = aps-score + regularization term
+            conformal_scores = aps_scores + regularization_term
+
+            scores.extend(conformal_scores.cpu().tolist())
+            labels.extend(true_labels.cpu().tolist())
+    return scores, labels
+
+
+def saps_scores_ground_truth(model, dataloader, alpha=0.1, lambda_=0.1, device='cpu'):
+    scores = []  # conformal scores of image sets
+    labels = []  # true label sets
+    with torch.no_grad():
+        for images, true_labels, real_probs in dataloader:
+            images, true_labels, real_probs = images.to(device), true_labels.to(device), real_probs.to(device)
+            outputs = model(images)
+            softmaxs = torch.softmax(outputs, dim=1)
+
+            # extract true lables' ranking/positions
+            sorted_softmax, sorted_indices = torch.sort(softmaxs, descending=True, dim=1)
+            true_label_positions = (sorted_indices == true_labels.unsqueeze(1)).nonzero(as_tuple=True)[1]
+
+            # extract maximal probabilities
+            max_softmax = sorted_softmax[:, 0]
+
+            # random variable u(s)
+            u = torch.rand(true_labels.size(0), device=device)
+            # scores of samples whose correct label is top-ranking --> u * max_softmax
+            is_top = (true_label_positions == 0)
+            scores_top_rank = u * max_softmax
+
+            # scores of samples whose correct label is  not top-ranking
+            # s = max_softmax + (o-2+u) * lambda = max_softmax + (true_label_position+1-2+u) * lambda
+            scores_other_rank = max_softmax + ((true_label_positions - 1).float() + u) * lambda_
+
+            conformal_scores = torch.where(is_top, scores_top_rank, scores_other_rank)
             scores.extend(conformal_scores.cpu().tolist())
             labels.extend(true_labels.cpu().tolist())
     return scores, labels
@@ -665,14 +763,18 @@ def hist_synthetic(all_real_probs_distribution):
 
 def scatter_synthetic(aps, real_probs, all_real_probs_distribution):
     """
-    Scatter plot of real probabilities sum and variance
-    :param aps: probability from model after aps-algorith  [0.7, 0.2] - [label_1, label_2]
+    Scatter plot of real probabilities sum and total variation distance (TVD),
+    and output Predictive and Real Probability Sets in specific regions.
+
+    :param aps: probability from model after aps-algorithm [0.7, 0.2] - [label_1, label_2]
     :param real_probs: real probability of label in aps    [0.7, 0.1] - [label_1, label_2]
     :param all_real_probs_distribution: sum of real_probs  [0.8]
-    :param bin_width: width of interval
     """
     y_vals = []  # conditional coverage
     x_vals = []  # total variation distance
+
+    # for tracking samples in specific regions
+    samples_info = []
 
     for ap, rp, real_sum in zip(aps, real_probs, all_real_probs_distribution):
         ap = np.array(ap)
@@ -681,13 +783,19 @@ def scatter_synthetic(aps, real_probs, all_real_probs_distribution):
         if ap.shape != rp.shape:
             raise ValueError("Shape mismatch between aps and real_probs.")
 
-        # if not an empty set
         if ap.size != 0 and rp.size != 0:
             tvd = 0.5 * np.sum(np.abs(ap - rp))
             y_vals.append(real_sum)
             x_vals.append(tvd)
 
-    # transform to np array
+            # record samples' information
+            samples_info.append({
+                'tvd': tvd,
+                'coverage': real_sum,
+                'aps': ap.tolist(),
+                'real_probs': rp.tolist()
+            })
+
     x_vals = np.array(x_vals)
     y_vals = np.array(y_vals)
 
@@ -710,10 +818,44 @@ def scatter_synthetic(aps, real_probs, all_real_probs_distribution):
         bbox=dict(facecolor='white', alpha=0.8, edgecolor='red')
     )
 
-    plt.xlabel(' Total Variation Distance of (Predictive Probability - Real Probability)')
+    plt.xlabel('Total Variation Distance between Predictive Probability and Real Probability)')
     plt.ylabel('Conditional Coverage')
     plt.title('Scatter: TVD vs Conditional Coverage')
     plt.grid(True)
     plt.tight_layout()
     plt.show()
+
+    print(f"Peak Conditional Coverage = {peak_y:.3f}, with {peak_count} samples")
+    # samples information display
+    print("\n=== Sample Points in Specific Regions ===")
+
+    # define the 4 regions
+    regions = {
+        "Region 1: x_range=[0, 0.1] y_range=[0.8, 1.0]": {'x_range': (0, 0.1), 'y_range': (0.8, 1.0)},
+        "Region 2: x_range=[0.2, 0.5] y_range=[0, 0.2]": {'x_range': (0.2, 0.5), 'y_range': (0, 0.2)},
+        "Region 3: x_range=[0.3, 0.5] y_range=[0.4, 0.8]": {'x_range': (0.3, 0.5), 'y_range': (0.4, 0.8)},
+        "Region 4: x_range=[0.6, 0.8] y_range=[0.8, 1.0]": {'x_range': (0.6, 0.8), 'y_range': (0.8, 1.0)},
+    }
+
+    # search and output points in each region
+    for region_name, ranges in regions.items():
+        x_low, x_high = ranges['x_range']
+        y_low, y_high = ranges['y_range']
+
+        region_samples = [
+            sample for sample in samples_info
+            # filter samples in the region
+            if x_low <= sample['tvd'] <= x_high and y_low <= sample['coverage'] <= y_high
+        ]
+
+        print(f"\n--- {region_name} ---")
+        if len(region_samples) == 0:
+            print("No points are found in this region.")
+        else:
+            # select 3 points randomly
+            selected_samples = random.sample(region_samples, min(3, len(region_samples)))
+            for idx, sample in enumerate(selected_samples, start=1):
+                print(f"Sample {idx}:")
+                print(f"  Predictive Probability Set: {sample['aps']}")
+                print(f"  Real Probability Set      : {sample['real_probs']}")
 
