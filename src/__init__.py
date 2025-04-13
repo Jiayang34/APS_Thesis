@@ -16,7 +16,7 @@ __all__ = [lambda_optimization_raps, lambda_optimization_saps, k_reg_optimizatio
            raps_scores, raps_classification, raps_test,  # raps
            saps_scores, saps_classification, saps_test,  # saps
            # CIFAR10-H & ImageNet-Real
-           split_data_set_cifar10h, split_data_set_imagenet_real, split_data_set_imagenet_real_normalize,
+           split_data_set_cifar10h, split_data_set_imagenet_real, split_data_set_imagenet_real,
            aps_classification_cifar10h, raps_classification_cifar10h, saps_classification_cifar10h,
            aps_classification_ground_truth, raps_classification_ground_truth, saps_classification_ground_truth,
            aps_scores_ground_truth, raps_scores_ground_truth, saps_scores_ground_truth,

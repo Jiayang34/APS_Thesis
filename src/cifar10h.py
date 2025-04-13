@@ -81,7 +81,7 @@ def aps_cifar10h_scatter(model, dataset, device, num_runs=10, alpha=0.1):
         calib_dataset, test_dataset = split_data_set_cifar10h(dataset, random_seed=i)
         calib_loader = DataLoader(calib_dataset, batch_size=32, shuffle=False)
         test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False)
-        calib_scores, _ = aps_scores_ground_truth(model, calib_loader, alpha, device)
+        calib_scores, _ = aps_scores_real_probs(model, calib_loader, alpha, device)
         q_hat = np.quantile(calib_scores, 1 - alpha)
         aps, aps_labels, true_labels, real_probs = aps_classification_cifar10h(model, test_loader, q_hat, device)
         all_pred_probs.extend(aps)
@@ -131,7 +131,7 @@ def raps_cifar10h_scatter(model, dataset, device, lambda_=0.1, k_reg=2, num_runs
         calib_dataset, test_dataset = split_data_set_cifar10h(dataset, random_seed=i)
         calib_loader = DataLoader(calib_dataset, batch_size=32, shuffle=False)
         test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False)
-        calib_scores, _ = raps_scores_ground_truth(model, calib_loader, alpha, lambda_, k_reg, device)
+        calib_scores, _ = raps_scores_real_probs(model, calib_loader, alpha, lambda_, k_reg, device)
         q_hat = np.quantile(calib_scores, 1 - alpha)
         aps, aps_labels, true_labels, real_probs = raps_classification_cifar10h(model, test_loader, q_hat, lambda_,
                                                                                 k_reg, device)
@@ -184,8 +184,8 @@ def raps_cifar10h_hist(model, dataset, device, lambda_=0.1, k_reg=2, num_runs=10
             calib_scores, _ = raps_scores_real_probs(model, calib_loader, alpha, lambda_, k_reg, device)
         q_hat = np.quantile(calib_scores, 1 - alpha)
         if is_ground_truth:
-            aps, aps_labels, true_labels= raps_classification_ground_truth(model, test_loader, q_hat, lambda_,
-                                                                           k_reg, device)
+            aps, aps_labels, true_labels = raps_classification_ground_truth(model, test_loader, q_hat, lambda_,
+                                                                            k_reg, device)
         else:
             aps, aps_labels, true_labels, real_probs = raps_classification_cifar10h(model, test_loader, q_hat, lambda_,
                                                                                     k_reg, device)
@@ -237,7 +237,7 @@ def saps_cifar10h_scatter(model, dataset, device, lambda_=0.1, num_runs=10, alph
         calib_dataset, test_dataset = split_data_set_cifar10h(dataset, random_seed=i)
         calib_loader = DataLoader(calib_dataset, batch_size=32, shuffle=False)
         test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False)
-        calib_scores, _ = saps_scores_ground_truth(model, calib_loader, alpha, lambda_, device)
+        calib_scores, _ = saps_scores_real_probs(model, calib_loader, alpha, lambda_, device)
         q_hat = np.quantile(calib_scores, 1 - alpha)
         aps, aps_labels, true_labels, real_probs = saps_classification_cifar10h(model, test_loader, q_hat, lambda_,
                                                                                 device)

@@ -73,11 +73,11 @@ def saps_classification(model, dataloader, t_cal, lambda_=0.1, device='cpu'):
             rank = torch.arange(1, sorted_softmax.size(1) + 1, device=device).unsqueeze(0)  # shape: [1, 100]
 
             # s = f_max + (o-2+u) * lambda
-            # scores --> all the label has been calculate as non-top-ranked label now
+            # scores --> all the label has been calculated as non-top-ranked label now
             f_max = sorted_softmax[:, 0].unsqueeze(1)  # Shape: (batch_size, 1)
             scores = f_max + ((rank - 2).float() + u) * lambda_  # Shape: (batch_size, 100)
 
-            # replace the firt column with u * f_max
+            # replace the first column with u * f_max
             scores[:, 0] = (u_f_max * f_max).squeeze(1)  # Shape: (batch_size,)
 
             # construct prediction sets

@@ -48,27 +48,6 @@ def split_data_set_cifar10h(dataset, random_seed):
 def split_data_set_imagenet_real(dataset, random_seed):
     # load real probabilities from ImageNer-Real
     current_dir = os.path.dirname(os.path.abspath(__file__))
-    npy_path = os.path.join(current_dir, "../data/imagenet_count.npy")
-    imagenet_real_probs = np.load(npy_path)
-
-    # pack ImageNet with real probabilities
-    imagenet_real = Dataset_and_Probs(dataset, imagenet_real_probs)
-
-    if random_seed is not None:
-        torch.manual_seed(random_seed)  # set input as random seed
-
-    # split image set ---> half for calibration data set, half for test data set
-    dataset_length = len(imagenet_real)
-    calib_length = dataset_length // 2
-    test_length = dataset_length - calib_length
-
-    calib_dataset, test_dataset = random_split(imagenet_real, [calib_length, test_length])
-    return calib_dataset, test_dataset
-
-
-def split_data_set_imagenet_real_normalize(dataset, random_seed):
-    # load real probabilities from ImageNer-Real
-    current_dir = os.path.dirname(os.path.abspath(__file__))
     npy_path = os.path.join(current_dir, "../data/imagenet_count_normalize.npy")
     imagenet_real_probs = np.load(npy_path)
 
@@ -250,10 +229,12 @@ def saps_scores_real_probs(model, dataloader, alpha=0.1, lambda_=0.1, device='cp
     labels = []  # true label sets
     with torch.no_grad():
         for images, true_labels, real_probs in dataloader:
-            true_labels, real_probs = true_labels.to(device), real_probs.to(device)
+            images, true_labels, real_probs = images.to(device), true_labels.to(device), real_probs.to(device)
+            outputs = model(images)
+            softmaxs = torch.softmax(outputs, dim=1)
 
             # extract true lables' ranking/positions
-            sorted_softmax, sorted_indices = torch.sort(real_probs, descending=True, dim=1)
+            sorted_softmax, sorted_indices = torch.sort(softmaxs, descending=True, dim=1)
             true_label_positions = (sorted_indices == true_labels.unsqueeze(1)).nonzero(as_tuple=True)[1]
 
             # extract maximal probabilities
@@ -339,15 +320,13 @@ def aps_classification_imagenet_real(model, dataloader, q_hat, device='cpu'):
             # extract prediction sets
             batch_size = images.shape[0]
             for i in range(batch_size):
-                cutoff_index = cutoff_indices[i].item()
-
-                # prediction set = all the label before cutoff index (exclusive cutoff)
-                aps.append(sorted_softmax[i, :cutoff_index].cpu().tolist())
+                selected_label = scores[i] <= q_hat
+                aps.append(sorted_softmax[i, :selected_label].cpu().tolist())
                 labels.append(true_labels[i].item())
                 # label set and real probability set
                 # e.g. C1 = {1,2,3} ; real prob from ImageNet-Real: Label_1=0.4, Label_2=0.3, Label_3=0.1
                 # real_prob of C1 = {0.4, 0.3, 0.1}
-                pred_labels = sorted_index[i, :cutoff_index].cpu().tolist()
+                pred_labels = sorted_index[i, :selected_label].cpu().tolist()
                 aps_labels.append(pred_labels)
                 if torch.all(probs[i] == 0):
                     # if this sample has no real probability e.g. [0, 0, ..., 0] -> real_probs = [None]
@@ -569,11 +548,11 @@ def saps_classification_cifar10h(model, dataloader, t_cal, lambda_=0.1, device='
             rank = torch.arange(1, sorted_softmax.size(1) + 1, device=device).unsqueeze(0)  # shape: [1, 100]
 
             # s = f_max + (o-2+u) * lambda
-            # scores --> all the label has been calculate as non-top-ranked label now
+            # scores --> all the label has been calculated as non-top-ranked label now
             f_max = sorted_softmax[:, 0].unsqueeze(1)  # Shape: (batch_size, 1)
             scores = f_max + ((rank - 2).float() + u) * lambda_  # Shape: (batch_size, 100)
 
-            # replace the firt column with u * f_max
+            # replace the first column with u * f_max
             scores[:, 0] = (u_f_max * f_max).squeeze(1)  # Shape: (batch_size,)
 
             # construct prediction sets
@@ -835,15 +814,28 @@ def scatter_synthetic(aps, real_probs, all_real_probs_distribution):
     plt.show()
 
     print(f"Peak Conditional Coverage = {peak_y_center:.3f}, with {peak_count} samples")
+
+    # samples count in three count regions
+    total_samples = len(all_real_probs_distribution)
+    count_region_1 = np.sum((x_vals >= 0) & (x_vals <= 0.5) & (y_vals >= 0.8) & (y_vals <= 1.0))
+    count_region_2 = np.sum((x_vals > 0.5) & (x_vals <= 1.0) & (y_vals >= 0.8) & (y_vals <= 1.0))
+    count_region_3 = np.sum((x_vals >= 0) & (x_vals <= 0.5) & (y_vals >= 0) & (y_vals < 0.8))
+
+    print("\n=== Count Regions Summary ===")
+    print(f"{count_region_1} ({count_region_1 / total_samples:.1%}) samples in Count Region 1 [x:0-0.5, y:0.8-1.0]")
+    print(f"{count_region_2} ({count_region_2 / total_samples:.1%}) samples in Count Region 2 [x:0.5-1.0, y:0.8-1.0]")
+    print(f"{count_region_3} ({count_region_3 / total_samples:.1%}) samples in Count Region 3 [x:0-0.5, y:0-0.8]")
+
     # samples information display
     print("\n=== Sample Points in Specific Regions ===")
 
     # define the 4 regions
     regions = {
         "Region 1: low TVD, high Coverage": {'x_range': (0, 0.1), 'y_range': (0.8, 1.0)},
-        "Region 2: high TVD, low coverage": {'x_range': (0.2, 0.5), 'y_range': (0, 0.2)},
-        "Region 3: medium TVD, medium coverage": {'x_range': (0.3, 0.5), 'y_range': (0.4, 0.8)},
-        "Region 4: high TVD, high coverage": {'x_range': (0.5, 0.8), 'y_range': (0.8, 1.0)},
+        "Region 2: high TVD, low Coverage": {'x_range': (0.2, 0.5), 'y_range': (0, 0.2)},
+        "Region 3: medium TVD, medium Coverage": {'x_range': (0.3, 0.5), 'y_range': (0.4, 0.8)},
+        "Region 4: high TVD, high Coverage": {'x_range': (0.5, 0.8), 'y_range': (0.8, 1.0)},
+        "Region 5: low TVD, low Coverage": {'x_range': (0, 0.2), 'y_range': (0, 0.2)},
     }
 
     # search and output points in each region
