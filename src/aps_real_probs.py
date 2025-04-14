@@ -66,11 +66,21 @@ def split_data_set_imagenet_real(dataset, random_seed):
     return calib_dataset, test_dataset
 
 
-def aps_scores_ground_truth(model, dataloader, alpha=0.1, device='cpu'):
+def aps_scores_ground_truth(model, dataloader, alpha=0.1, device='cpu', is_imagenet=False):
     scores = []  # conformal scores of image sets
     labels = []  # true label sets
     with torch.no_grad():
         for images, true_labels, real_probs in dataloader:
+
+            # filter unmarked samples of imagenet real
+            if is_imagenet:
+                # at least one label is marked with real probability -> valid score
+                valid_samples = real_probs.sum(dim=1) != 0
+                if valid_samples.sum() == 0:
+                    continue  # if this batch has no valid samples -> next batch
+                true_labels = true_labels[valid_samples]
+                real_probs = real_probs[valid_samples]
+
             true_labels, real_probs = true_labels.to(device), real_probs.to(device)
 
             # sort ground-truth real probability in descending order and then cumulate
@@ -94,11 +104,22 @@ def aps_scores_ground_truth(model, dataloader, alpha=0.1, device='cpu'):
     return np.array(scores), np.array(labels)
 
 
-def aps_scores_real_probs(model, dataloader, alpha=0.1, device='cpu'):
+def aps_scores_model(model, dataloader, alpha=0.1, device='cpu', is_imagenet=False):
     scores = []  # conformal scores of image sets
     labels = []  # true label sets
     with torch.no_grad():
         for images, true_labels, real_probs in dataloader:
+
+            # filter unmarked samples of imagenet real
+            if is_imagenet:
+                # at least one label is marked with real probability -> valid score
+                valid_samples = real_probs.sum(dim=1) != 0
+                if valid_samples.sum() == 0:
+                    continue  # if this batch has no valid samples -> next batch
+                images = images[valid_samples]
+                true_labels = true_labels[valid_samples]
+                real_probs = real_probs[valid_samples]
+
             images, true_labels, real_probs = images.to(device), true_labels.to(device), real_probs.to(device)
             outputs = model(images)
             softmaxs = torch.softmax(outputs, dim=1)
@@ -124,11 +145,21 @@ def aps_scores_real_probs(model, dataloader, alpha=0.1, device='cpu'):
     return np.array(scores), np.array(labels)
 
 
-def raps_scores_ground_truth(model, dataloader, alpha=0.1, lambda_reg=0.1, k_reg=5, device='cpu'):
+def raps_scores_ground_truth(model, dataloader, alpha=0.1, lambda_reg=0.1, k_reg=5, device='cpu', is_imagenet=False):
     scores = []  # conformal scores of image sets
     labels = []  # true label sets
     with torch.no_grad():
         for images, true_labels, real_probs in dataloader:
+
+            # filter unmarked samples of imagenet real
+            if is_imagenet:
+                # at least one label is marked with real probability -> valid score
+                valid_samples = real_probs.sum(dim=1) != 0
+                if valid_samples.sum() == 0:
+                    continue  # if this batch has no valid samples -> next batch
+                true_labels = true_labels[valid_samples]
+                real_probs = real_probs[valid_samples]
+
             true_labels, real_probs = true_labels.to(device), real_probs.to(device)
 
             # sort and cumulate
@@ -157,11 +188,22 @@ def raps_scores_ground_truth(model, dataloader, alpha=0.1, lambda_reg=0.1, k_reg
     return scores, labels
 
 
-def raps_scores_real_probs(model, dataloader, alpha=0.1, lambda_reg=0.1, k_reg=5, device='cpu'):
+def raps_scores_model(model, dataloader, alpha=0.1, lambda_reg=0.1, k_reg=5, device='cpu', is_imagenet=False):
     scores = []  # conformal scores of image sets
     labels = []  # true label sets
     with torch.no_grad():
         for images, true_labels, real_probs in dataloader:
+
+            # filter unmarked samples of imagenet real
+            if is_imagenet:
+                # at least one label is marked with real probability -> valid score
+                valid_samples = real_probs.sum(dim=1) != 0
+                if valid_samples.sum() == 0:
+                    continue  # if this batch has no valid samples -> next batch
+                images = images[valid_samples]
+                true_labels = true_labels[valid_samples]
+                real_probs = real_probs[valid_samples]
+
             images, true_labels, real_probs = images.to(device), true_labels.to(device), real_probs.to(device)
             outputs = model(images)
             softmaxs = torch.softmax(outputs, dim=1)
@@ -192,11 +234,63 @@ def raps_scores_real_probs(model, dataloader, alpha=0.1, lambda_reg=0.1, k_reg=5
     return scores, labels
 
 
-def saps_scores_ground_truth(model, dataloader, alpha=0.1, lambda_=0.1, device='cpu'):
+def saps_scores_ground_truth(model, dataloader, alpha=0.1, lambda_=0.1, device='cpu', is_imagenet=False):
     scores = []  # conformal scores of image sets
     labels = []  # true label sets
     with torch.no_grad():
         for images, true_labels, real_probs in dataloader:
+
+            # filter unmarked samples of imagenet real
+            if is_imagenet:
+                # at least one label is marked with real probability -> valid score
+                valid_samples = real_probs.sum(dim=1) != 0
+                if valid_samples.sum() == 0:
+                    continue  # if this batch has no valid samples -> next batch
+                true_labels = true_labels[valid_samples]
+                real_probs = real_probs[valid_samples]
+
+            true_labels, real_probs = true_labels.to(device), real_probs.to(device)
+
+            # extract true lables' ranking/positions
+            sorted_softmax, sorted_indices = torch.sort(real_probs, descending=True, dim=1)
+            true_label_positions = (sorted_indices == true_labels.unsqueeze(1)).nonzero(as_tuple=True)[1]
+
+            # extract maximal probabilities
+            max_softmax = sorted_softmax[:, 0]
+
+            # random variable u(s)
+            u = torch.rand(true_labels.size(0), device=device)
+            # scores of samples whose correct label is top-ranking --> u * max_softmax
+            is_top = (true_label_positions == 0)
+            scores_top_rank = u * max_softmax
+
+            # scores of samples whose correct label is  not top-ranking
+            # s = max_softmax + (o-2+u) * lambda = max_softmax + (true_label_position+1-2+u) * lambda
+            scores_other_rank = max_softmax + ((true_label_positions - 1).float() + u) * lambda_
+
+            conformal_scores = torch.where(is_top, scores_top_rank, scores_other_rank)
+
+            scores.extend(conformal_scores.cpu().tolist())
+            labels.extend(true_labels.cpu().tolist())
+    return scores, labels
+
+
+def saps_scores_model(model, dataloader, alpha=0.1, lambda_=0.1, device='cpu', is_imagenet=False):
+    scores = []  # conformal scores of image sets
+    labels = []  # true label sets
+    with torch.no_grad():
+        for images, true_labels, real_probs in dataloader:
+
+            # filter unmarked samples of imagenet real
+            if is_imagenet:
+                # at least one label is marked with real probability -> valid score
+                valid_samples = real_probs.sum(dim=1) != 0
+                if valid_samples.sum() == 0:
+                    continue  # if this batch has no valid samples -> next batch
+                images = images[valid_samples]
+                true_labels = true_labels[valid_samples]
+                real_probs = real_probs[valid_samples]
+
             images, true_labels, real_probs = images.to(device), true_labels.to(device), real_probs.to(device)
             outputs = model(images)
             softmaxs = torch.softmax(outputs, dim=1)
@@ -224,45 +318,24 @@ def saps_scores_ground_truth(model, dataloader, alpha=0.1, lambda_=0.1, device='
     return scores, labels
 
 
-def saps_scores_real_probs(model, dataloader, alpha=0.1, lambda_=0.1, device='cpu'):
-    scores = []  # conformal scores of image sets
-    labels = []  # true label sets
-    with torch.no_grad():
-        for images, true_labels, real_probs in dataloader:
-            images, true_labels, real_probs = images.to(device), true_labels.to(device), real_probs.to(device)
-            outputs = model(images)
-            softmaxs = torch.softmax(outputs, dim=1)
-
-            # extract true lables' ranking/positions
-            sorted_softmax, sorted_indices = torch.sort(softmaxs, descending=True, dim=1)
-            true_label_positions = (sorted_indices == true_labels.unsqueeze(1)).nonzero(as_tuple=True)[1]
-
-            # extract maximal probabilities
-            max_softmax = sorted_softmax[:, 0]
-
-            # random variable u(s)
-            u = torch.rand(true_labels.size(0), device=device)
-            # scores of samples whose correct label is top-ranking --> u * max_softmax
-            is_top = (true_label_positions == 0)
-            scores_top_rank = u * max_softmax
-
-            # scores of samples whose correct label is  not top-ranking
-            # s = max_softmax + (o-2+u) * lambda = max_softmax + (true_label_position+1-2+u) * lambda
-            scores_other_rank = max_softmax + ((true_label_positions - 1).float() + u) * lambda_
-
-            conformal_scores = torch.where(is_top, scores_top_rank, scores_other_rank)
-            scores.extend(conformal_scores.cpu().tolist())
-            labels.extend(true_labels.cpu().tolist())
-    return scores, labels
-
-
-def aps_classification_cifar10h(model, dataloader, q_hat, device='cpu'):
+def aps_classification_model(model, dataloader, q_hat, device='cpu', is_imagenet=False):
     aps = []  # probability set
     aps_labels = []  # label set indicated to the probability set
     labels = []  # true label
     real_probs = []  # real probability of prediction set
     with torch.no_grad():
         for images, true_labels, probs in dataloader:
+
+            # filter unmarked samples of imagenet real
+            if is_imagenet:
+                # at least one label is marked with real probability -> valid score
+                valid_samples = real_probs.sum(dim=1) != 0
+                if valid_samples.sum() == 0:
+                    continue  # if this batch has no valid samples -> next batch
+                images = images[valid_samples]
+                true_labels = true_labels[valid_samples]
+                real_probs = real_probs[valid_samples]
+
             images, true_labels, probs = images.to(device), true_labels.to(device), probs.to(device)
             outputs = model(images)
             softmaxs = torch.softmax(outputs, dim=1)
@@ -293,58 +366,30 @@ def aps_classification_cifar10h(model, dataloader, q_hat, device='cpu'):
     return aps, aps_labels, labels, real_probs
 
 
-def aps_classification_imagenet_real(model, dataloader, q_hat, device='cpu'):
-    aps = []  # probability set
-    aps_labels = []  # label set indicated to the probability set
-    labels = []  # true label
-    real_probs = []  # real probability of prediction set
-    with torch.no_grad():
-        for images, true_labels, probs in dataloader:
-            images, true_labels, probs = images.to(device), true_labels.to(device), probs.to(device)
-            outputs = model(images)
-            softmaxs = torch.softmax(outputs, dim=1)
-
-            # sort and cumulate
-            sorted_softmax, sorted_index = torch.sort(softmaxs, descending=True, dim=1)
-            cumulative_softmax = torch.cumsum(sorted_softmax, dim=1)
-
-            # random variable u with the same size of sorted_softmax
-            u = torch.rand_like(sorted_softmax, dtype=torch.float, device=device)
-
-            # compute scores for all labels
-            scores = cumulative_softmax - sorted_softmax + u * sorted_softmax
-
-            # cutoff index = the first index above q_hat
-            cutoff_indices = torch.searchsorted(scores, torch.full_like(scores[:, :1], q_hat), right=True)
-
-            # extract prediction sets
-            batch_size = images.shape[0]
-            for i in range(batch_size):
-                selected_label = scores[i] <= q_hat
-                aps.append(sorted_softmax[i, :selected_label].cpu().tolist())
-                labels.append(true_labels[i].item())
-                # label set and real probability set
-                # e.g. C1 = {1,2,3} ; real prob from ImageNet-Real: Label_1=0.4, Label_2=0.3, Label_3=0.1
-                # real_prob of C1 = {0.4, 0.3, 0.1}
-                pred_labels = sorted_index[i, :selected_label].cpu().tolist()
-                aps_labels.append(pred_labels)
-                if torch.all(probs[i] == 0):
-                    # if this sample has no real probability e.g. [0, 0, ..., 0] -> real_probs = [None]
-                    real_probs.append(None)
-                else:
-                    # if APS construct an empty set for this sample -> real_probs = []
-                    real_probs.append(probs[i, pred_labels].cpu().tolist())
-
-    return aps, aps_labels, labels, real_probs
-
-
-def aps_classification_ground_truth(model, dataloader, q_hat, device='cpu'):
+def aps_classification_ground_truth(model, dataloader, q_hat, device='cpu', is_imagenet=False):
     aps = []         # ground-truth real probability set
     aps_labels = []  # label set indicated to the probability set
     labels = []      # true label
     with torch.no_grad():
         for images, true_labels, probs in dataloader:
+
+            # filter unmarked samples of imagenet real
+            if is_imagenet:
+                # at least one label is marked with real probability -> valid score
+                valid_samples = probs.sum(dim=1) != 0
+                if valid_samples.sum() == 0:
+                    continue  # if this batch has no valid samples -> next batch
+                true_labels = true_labels[valid_samples]
+                probs = probs[valid_samples]
+
             true_labels, probs = true_labels.to(device), probs.to(device)
+
+            # filter unmarked samples of imagenet real
+            if is_imagenet:
+                # at least one label is marked with real probability -> valid score
+                valid_samples = real_probs.sum(dim=1) != 0
+                true_labels = true_labels[valid_samples]
+                real_probs = real_probs[valid_samples]
 
             # sort and cumulate real probability
             sorted_softmax, sorted_index = torch.sort(probs, descending=True, dim=1)
@@ -367,13 +412,24 @@ def aps_classification_ground_truth(model, dataloader, q_hat, device='cpu'):
     return aps, aps_labels, labels
 
 
-def raps_classification_cifar10h(model, dataloader, t_cal, lambda_reg=0.1, k_reg=5, device='cpu'):
+def raps_classification_model(model, dataloader, t_cal, lambda_reg=0.1, k_reg=5, device='cpu', is_imagenet=False):
     raps = []  # probability set
     raps_labels = []  # label set indicated to the probability set
     labels = []  # true label
     real_probs = []  # real probability of prediction set
     with torch.no_grad():
         for images, true_labels, probs in dataloader:
+
+            # filter unmarked samples of imagenet real
+            if is_imagenet:
+                # at least one label is marked with real probability -> valid score
+                valid_samples = real_probs.sum(dim=1) != 0
+                if valid_samples.sum() == 0:
+                    continue  # if this batch has no valid samples -> next batch
+                images = images[valid_samples]
+                true_labels = true_labels[valid_samples]
+                real_probs = real_probs[valid_samples]
+
             images, true_labels, probs = images.to(device), true_labels.to(device), probs.to(device)
             outputs = model(images)
             softmaxs = torch.softmax(outputs, dim=1)
@@ -397,7 +453,6 @@ def raps_classification_cifar10h(model, dataloader, t_cal, lambda_reg=0.1, k_reg
             e_less_than_t = e <= t_cal
             cutoff_indices = torch.sum(e_less_than_t, dim=1)
 
-            # build prediction sets
             # build prediction sets
             batch_size = images.shape[0]
             for i in range(batch_size):
@@ -420,12 +475,22 @@ def raps_classification_cifar10h(model, dataloader, t_cal, lambda_reg=0.1, k_reg
     return raps, raps_labels, labels, real_probs
 
 
-def raps_classification_ground_truth(model, dataloader, t_cal, lambda_reg=0.1, k_reg=5, device='cpu'):
+def raps_classification_ground_truth(model, dataloader, t_cal, lambda_reg=0.1, k_reg=5, device='cpu', is_imagenet=False):
     raps = []  # real probability set
     raps_labels = []  # label set indicated to the real probability set
     labels = []  # true label
     with torch.no_grad():
         for images, true_labels, probs in dataloader:
+
+            # filter unmarked samples of imagenet real
+            if is_imagenet:
+                # at least one label is marked with real probability -> valid score
+                valid_samples = probs.sum(dim=1) != 0
+                if valid_samples.sum() == 0:
+                    continue  # if this batch has no valid samples -> next batch
+                true_labels = true_labels[valid_samples]
+                probs = probs[valid_samples]
+
             true_labels, probs = true_labels.to(device), probs.to(device)
             # sort real probabilities
             sorted_softmax, sorted_indices = torch.sort(probs, descending=True, dim=1)  # shape: [batch_size, 1000]
@@ -447,7 +512,6 @@ def raps_classification_ground_truth(model, dataloader, t_cal, lambda_reg=0.1, k
             cutoff_indices = torch.sum(e_less_than_t, dim=1)
 
             # build prediction sets
-            # build prediction sets
             batch_size = images.shape[0]
             for i in range(batch_size):
                 cutoff_index = cutoff_indices[i].item()
@@ -466,72 +530,24 @@ def raps_classification_ground_truth(model, dataloader, t_cal, lambda_reg=0.1, k
     return raps, raps_labels, labels
 
 
-def raps_classification_imagenet_real(model, dataloader, t_cal, lambda_reg=0.1, k_reg=5, device='cpu'):
-    raps = []  # probability set
-    raps_labels = []  # label set indicated to the probability set
-    labels = []  # true label
-    real_probs = []  # real probability of prediction set
-    with torch.no_grad():
-        for images, true_labels, probs in dataloader:
-            images, true_labels, probs = images.to(device), true_labels.to(device), probs.to(device)
-            outputs = model(images)
-            softmaxs = torch.softmax(outputs, dim=1)
-
-            # sort softmax probabilities
-            sorted_softmax, sorted_indices = torch.sort(softmaxs, descending=True, dim=1)  # shape: [batch_size, 1000]
-            cumulative_softmax = torch.cumsum(sorted_softmax, dim=1)  # shape: [batch_size, 1000]
-
-            # rank of current sorted probability: [1,2,3,...,1000]
-            rank = torch.arange(1, sorted_softmax.size(1) + 1, device=device).unsqueeze(0)  # shape: [1, 1000]
-            # calculate regularization term
-            regularization_term = lambda_reg * torch.clamp(rank - k_reg, min=0)  # shape: [1, 1000]
-
-            # generate random variable u for all samples
-            u = torch.rand_like(sorted_softmax)  # shape: [batch_size, 1000]
-
-            # E = cumulative[current-1] + u*sorted[current] + regularization
-            # which is equal to: cumulative[current] - sorted[current] + u*sorted[current] + regularization
-            e = cumulative_softmax - sorted_softmax + u * sorted_softmax + regularization_term  # shape: [batch_size, 1000]
-
-            e_less_than_t = e <= t_cal
-            cutoff_indices = torch.sum(e_less_than_t, dim=1)
-
-            # build prediction sets
-            # build prediction sets
-            batch_size = images.shape[0]
-            for i in range(batch_size):
-                cutoff_index = cutoff_indices[i].item()
-
-                if cutoff_index > 0:
-                    pred_label = sorted_indices[i, :cutoff_index].cpu().tolist()
-                    pred_prob = sorted_softmax[i, :cutoff_index].cpu().tolist()
-                    if torch.all(probs[i] == 0):
-                        real_prob = None   # real prob unmarked
-                    else:
-                        real_prob = probs[i, pred_label].cpu().tolist()
-                else:
-                    pred_label = []
-                    pred_prob = []
-                    if torch.all(probs[i] == 0):
-                        real_prob = None    # real prob unmarked
-                    else:
-                        real_prob = []      # real prob marked but APS generate empty set
-
-                raps.append(pred_prob)
-                raps_labels.append(pred_label)
-                real_probs.append(real_prob)
-                labels.append(true_labels[i].item())
-
-    return raps, raps_labels, labels, real_probs
-
-
-def saps_classification_cifar10h(model, dataloader, t_cal, lambda_=0.1, device='cpu'):
+def saps_classification_model(model, dataloader, t_cal, lambda_=0.1, device='cpu', is_imagenet=False):
     saps = []  # probability set
     saps_labels = []  # label set indicated to the probability set
     labels = []  # true label
     real_probs = []  # real probability of prediction set
     with torch.no_grad():
         for images, true_labels, probs in dataloader:
+
+            # filter unmarked samples of imagenet real
+            if is_imagenet:
+                # at least one label is marked with real probability -> valid score
+                valid_samples = real_probs.sum(dim=1) != 0
+                if valid_samples.sum() == 0:
+                    continue  # if this batch has no valid samples -> next batch
+                images = images[valid_samples]
+                true_labels = true_labels[valid_samples]
+                real_probs = real_probs[valid_samples]
+
             images, true_labels, probs = images.to(device), true_labels.to(device), probs.to(device)
             outputs = model(images)
             softmax = torch.softmax(outputs, dim=1)
@@ -578,71 +594,22 @@ def saps_classification_cifar10h(model, dataloader, t_cal, lambda_=0.1, device='
     return saps, saps_labels, labels, real_probs
 
 
-def saps_classification_imagenet_real(model, dataloader, t_cal, lambda_=0.1, device='cpu'):
-    saps = []  # probability set
-    saps_labels = []  # label set indicated to the probability set
-    labels = []  # true label
-    real_probs = []  # real probability of prediction set
-    with torch.no_grad():
-        for images, true_labels, probs in dataloader:
-            images, true_labels, probs = images.to(device), true_labels.to(device), probs.to(device)
-            outputs = model(images)
-            softmax = torch.softmax(outputs, dim=1)
-
-            # sort probabilities
-            sorted_softmax, sorted_indices = torch.sort(softmax, descending=True, dim=1)
-
-            # random variable u(s)
-            u = torch.rand(sorted_softmax.shape, device=device)  # Shape: (batch_size, 100)
-            # random variable for maximal probabilities
-            u_f_max = torch.rand(sorted_softmax.shape[0], device=device).unsqueeze(1)  # Shape: (batch_size, 1)
-
-            # rank of current sorted probability: [1,2,3,...,1000]
-            rank = torch.arange(1, sorted_softmax.size(1) + 1, device=device).unsqueeze(0)  # shape: [1, 100]
-
-            # s = f_max + (o-2+u) * lambda
-            # scores --> all the label has been calculate as non-top-ranked label now
-            f_max = sorted_softmax[:, 0].unsqueeze(1)  # Shape: (batch_size, 1)
-            scores = f_max + ((rank - 2).float() + u) * lambda_  # Shape: (batch_size, 100)
-
-            # replace the firt column with u * f_max
-            scores[:, 0] = (u_f_max * f_max).squeeze(1)  # Shape: (batch_size,)
-
-            # construct prediction sets
-            batch_size = images.shape[0]
-            for i in range(batch_size):
-                # select indices whose scores <= t_cal
-                selected_indices = (scores[i] <= t_cal).nonzero(as_tuple=True)[0]
-
-                if len(selected_indices) > 0:
-                    pred_label = sorted_indices[i][selected_indices].cpu().tolist()
-                    pred_prob = sorted_softmax[i][selected_indices].cpu().tolist()
-                    if torch.all(probs[i] == 0):
-                        real_prob = None  # real prob unmarked
-                    else:
-                        real_prob = probs[i, pred_label].cpu().tolist()
-                else:
-                    pred_label = []
-                    pred_prob = []
-                    if torch.all(probs[i] == 0):
-                        real_prob = None  # real prob unmarked
-                    else:
-                        real_prob = []    # real prob marked but APS generate empty set
-
-                saps.append(pred_prob)
-                saps_labels.append(pred_label)
-                real_probs.append(real_prob)
-                labels.append(true_labels[i].item())
-
-    return saps, saps_labels, labels, real_probs
-
-
-def saps_classification_ground_truth(model, dataloader, t_cal, lambda_=0.1, device='cpu'):
+def saps_classification_ground_truth(model, dataloader, t_cal, lambda_=0.1, device='cpu', is_imagenet=False):
     saps = []  # real probability set
     saps_labels = []  # label set indicated to the real probability set
     labels = []  # true label
     with torch.no_grad():
         for images, true_labels, probs in dataloader:
+
+            # filter unmarked samples of imagenet real
+            if is_imagenet:
+                # at least one label is marked with real probability -> valid score
+                valid_samples = probs.sum(dim=1) != 0
+                if valid_samples.sum() == 0:
+                    continue  # if this batch has no valid samples -> next batch
+                true_labels = true_labels[valid_samples]
+                probs = probs[valid_samples]
+
             true_labels, probs = true_labels.to(device), probs.to(device)
             # sort real probabilities
             sorted_softmax, sorted_indices = torch.sort(probs, descending=True, dim=1)
