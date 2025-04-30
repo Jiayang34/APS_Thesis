@@ -79,18 +79,13 @@ def raps_classification(model, dataloader, t_cal, lambda_reg=0.1, k_reg=5, devic
             # which is equal to: cumulative[current] - sorted[current] + u*sorted[current] + regularization
             e = cumulative_softmax - sorted_softmax + u * sorted_softmax + regularization_term  # shape: [batch_size, 1000]
 
-            e_less_than_t = e <= t_cal
-            cutoff_indices = torch.sum(e_less_than_t, dim=1)
-
             # build prediction sets
-            for i, cutoff_index in enumerate(cutoff_indices):
-                if cutoff_index.item() > 0:
-                    raps.append(sorted_softmax[i, :cutoff_index].tolist())
-                    raps_labels.append(sorted_indices[i, :cutoff_index].tolist())
-                else:
-                    raps.append([])  # RAPS should allow empty set
-                    raps_labels.append([])
+            batch_size = images.shape[0]
+            for i in range(batch_size):
+                selected_label = e[i] <= t_cal
 
+                raps.append(sorted_softmax[i, selected_label].cpu().tolist())
+                raps_labels.append(sorted_indices[i, selected_label].cpu().tolist())
                 labels.append(true_labels[i].item())
     return raps, raps_labels, labels
 
@@ -127,8 +122,8 @@ def raps_test(model, dataset, device, num_runs=10, alpha=0.1, lambda_ =0.1, k_re
         calib_dataset, test_dataset = split_data_set(dataset, random_seed=i)
 
         # load data set respectively
-        calib_loader = DataLoader(calib_dataset, batch_size=32, shuffle=False)
-        test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False)
+        calib_loader = DataLoader(calib_dataset, batch_size=32, shuffle=False, num_workers=4)
+        test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False, num_workers=4)
 
         # calculate q_hat
         calib_scores, _ = raps_scores(model, calib_loader, alpha, lambda_, k_reg, device)

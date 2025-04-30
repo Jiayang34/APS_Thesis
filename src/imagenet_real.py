@@ -21,12 +21,12 @@ def aps_imagenet_real_hist(model, dataset, device, num_runs=10, alpha=0.1, is_gr
     for i in range(num_runs):
         print(f"Running experiment {i + 1}/{num_runs}...")
         calib_dataset, test_dataset = split_data_set_imagenet_real(dataset, random_seed=i)
-        calib_loader = DataLoader(calib_dataset, batch_size=32, shuffle=False)
-        test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False)
+        calib_loader = DataLoader(calib_dataset, batch_size=32, shuffle=False, num_workers=4)
+        test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False, num_workers=4)
         if is_ground_truth:
             calib_scores, _ = aps_scores_ground_truth(model, calib_loader, alpha, device, is_imagenet=True)
         else:
-            calib_scores, _ = aps_scores_model(model, calib_loader, alpha, device, is_imagenet=True)
+            calib_scores, _ = aps_scores_model(model, calib_loader, alpha, device)
         q_hat = np.quantile(calib_scores, 1 - alpha)
         if is_ground_truth:
             aps, aps_labels, true_labels = aps_classification_ground_truth(model, test_loader, q_hat, device,
@@ -39,7 +39,7 @@ def aps_imagenet_real_hist(model, dataset, device, num_runs=10, alpha=0.1, is_gr
             sum_real_probs = [sum(probs) for probs in aps]
             avg_real_prob = np.mean(sum_real_probs)
         else:
-            sum_real_probs = [sum(real_prob) for real_prob in real_probs]
+            sum_real_probs = [sum(real_prob) for real_prob in real_probs if real_prob is not None]
             avg_real_prob = np.mean(sum_real_probs)
 
         all_avg_set_sizes.append(avg_set_size)
@@ -82,9 +82,9 @@ def aps_imagenet_real_scatter(model, dataset, device, num_runs=10, alpha=0.1):
     for i in range(num_runs):
         print(f"Running experiment {i + 1}/{num_runs}...")
         calib_dataset, test_dataset = split_data_set_imagenet_real(dataset, random_seed=i)
-        calib_loader = DataLoader(calib_dataset, batch_size=32, shuffle=False)
-        test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False)
-        calib_scores, _ = aps_scores_model(model, calib_loader, alpha, device, is_imagenet=True)
+        calib_loader = DataLoader(calib_dataset, batch_size=32, shuffle=False, num_workers=4)
+        test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False, num_workers=4)
+        calib_scores, _ = aps_scores_model(model, calib_loader, alpha, device)
         q_hat = np.quantile(calib_scores, 1 - alpha)
         aps, aps_labels, true_labels, real_probs = aps_classification_model(model, test_loader, q_hat, device,
                                                                             is_imagenet=True)
@@ -92,8 +92,8 @@ def aps_imagenet_real_scatter(model, dataset, device, num_runs=10, alpha=0.1):
         all_real_probs.extend(real_probs)
 
         avg_set_size, avg_coverage = eval_aps_real_probs(aps_labels, true_labels)
-        sum_real_probs = [sum(probs) for probs in real_probs]
-        avg_real_prob = np.mean(sum_real_probs)
+        sum_real_probs = [sum(real_prob) if real_prob is not None else None for real_prob in real_probs]
+        avg_real_prob = np.mean([sum for sum in sum_real_probs if sum is not None])
 
         all_avg_set_sizes.append(avg_set_size)
         all_avg_coverages.append(avg_coverage)
@@ -115,7 +115,7 @@ def aps_imagenet_real_scatter(model, dataset, device, num_runs=10, alpha=0.1):
     print(f"Final Average Prediction Set Size: {final_avg_set_size:.2f} ± {final_set_size_std:.2f}")
     print(f"Final Average Coverage: {final_avg_coverage:.4f} ± {final_coverage_std:.4f}")
     print(f"Final Average Real Probability: {final_avg_real_prob:.4f} ± {final_real_prob_std:.4f}")
-    scatter_synthetic(all_pred_probs, all_real_probs, all_real_probs_distribution)
+    scatter_synthetic(all_pred_probs, all_real_probs, all_real_probs_distribution, is_imagenet=True)
 
 
 def raps_imagenet_real_hist(model, dataset, device, lambda_=0.1, k_reg=2, num_runs=10, alpha=0.1, is_ground_truth=True):
@@ -130,12 +130,12 @@ def raps_imagenet_real_hist(model, dataset, device, lambda_=0.1, k_reg=2, num_ru
     for i in range(num_runs):
         print(f"Running experiment {i + 1}/{num_runs}...")
         calib_dataset, test_dataset = split_data_set_imagenet_real(dataset, random_seed=i)
-        calib_loader = DataLoader(calib_dataset, batch_size=32, shuffle=False)
-        test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False)
+        calib_loader = DataLoader(calib_dataset, batch_size=32, shuffle=False, num_workers=4)
+        test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False, num_workers=4)
         if is_ground_truth:
             calib_scores, _ = raps_scores_ground_truth(model, calib_loader, alpha, lambda_, k_reg, device, is_imagenet=True)
         else:
-            calib_scores, _ = raps_scores_model(model, calib_loader, alpha, lambda_, k_reg, device, is_imagenet=True)
+            calib_scores, _ = raps_scores_model(model, calib_loader, alpha, lambda_, k_reg, device)
         q_hat = np.quantile(calib_scores, 1 - alpha)
         if is_ground_truth:
             aps, aps_labels, true_labels = raps_classification_ground_truth(model, test_loader, q_hat, lambda_,
@@ -144,11 +144,12 @@ def raps_imagenet_real_hist(model, dataset, device, lambda_=0.1, k_reg=2, num_ru
             aps, aps_labels, true_labels, real_probs = raps_classification_model(model, test_loader, q_hat, lambda_,
                                                                                  k_reg, device, is_imagenet=True)
         avg_set_size, avg_coverage = eval_aps_real_probs(aps_labels, true_labels)
+        # print(f"q_hat: {q_hat:.2f}, set size: {avg_set_size:.2f}, Coverage: {avg_coverage:.4f}")
         if is_ground_truth:
             sum_real_probs = [sum(probs) for probs in aps]
             avg_real_prob = np.mean(sum_real_probs)
         else:
-            sum_real_probs = [sum(real_prob) for real_prob in real_probs]
+            sum_real_probs = [sum(real_prob) for real_prob in real_probs if real_prob is not None]
             avg_real_prob = np.mean(sum_real_probs)
 
         all_avg_set_sizes.append(avg_set_size)
@@ -189,17 +190,17 @@ def raps_imagenet_real_scatter(model, dataset, device, lambda_=0.1, k_reg=2, num
     for i in range(num_runs):
         print(f"Running experiment {i + 1}/{num_runs}...")
         calib_dataset, test_dataset = split_data_set_imagenet_real(dataset, random_seed=i)
-        calib_loader = DataLoader(calib_dataset, batch_size=32, shuffle=False)
-        test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False)
-        calib_scores, _ = raps_scores_model(model, calib_loader, alpha, lambda_, k_reg, device, is_imagenet=True)
+        calib_loader = DataLoader(calib_dataset, batch_size=32, shuffle=False, num_workers=4)
+        test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False, num_workers=4)
+        calib_scores, _ = raps_scores_model(model, calib_loader, alpha, lambda_, k_reg, device)
         q_hat = np.quantile(calib_scores, 1 - alpha)
         aps, aps_labels, true_labels, real_probs = raps_classification_model(model, test_loader, q_hat, lambda_,
                                                                              k_reg, device, is_imagenet=True)
         all_pred_probs.extend(aps)
         all_real_probs.extend(real_probs)
         avg_set_size, avg_coverage = eval_aps_real_probs(aps_labels, true_labels)
-        sum_real_probs = [sum(probs) for probs in real_probs]
-        avg_real_prob = np.mean(sum_real_probs)  # average real probability
+        sum_real_probs = [sum(real_prob) if real_prob is not None else None for real_prob in real_probs]
+        avg_real_prob = np.mean([sum for sum in sum_real_probs if sum is not None])  # average real probability
 
         all_avg_set_sizes.append(avg_set_size)
         all_avg_coverages.append(avg_coverage)
@@ -221,7 +222,7 @@ def raps_imagenet_real_scatter(model, dataset, device, lambda_=0.1, k_reg=2, num
     print(f"Final Average Prediction Set Size: {final_avg_set_size:.2f} ± {final_set_size_std:.2f}")
     print(f"Final Average Coverage: {final_avg_coverage:.4f} ± {final_coverage_std:.4f}")
     print(f"Final Average Real Probability: {final_avg_real_prob:.4f} ± {final_real_prob_std:.4f}")
-    scatter_synthetic(all_pred_probs, all_real_probs, all_real_probs_distribution)
+    scatter_synthetic(all_pred_probs, all_real_probs, all_real_probs_distribution, is_imagenet=True)
 
 
 def saps_imagenet_real_hist(model, dataset, device, lambda_=0.1, num_runs=10, alpha=0.1, is_ground_truth=True):
@@ -236,12 +237,12 @@ def saps_imagenet_real_hist(model, dataset, device, lambda_=0.1, num_runs=10, al
     for i in range(num_runs):
         print(f"Running experiment {i + 1}/{num_runs}...")
         calib_dataset, test_dataset = split_data_set_imagenet_real(dataset, random_seed=i)
-        calib_loader = DataLoader(calib_dataset, batch_size=32, shuffle=False)
-        test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False)
+        calib_loader = DataLoader(calib_dataset, batch_size=32, shuffle=False, num_workers=4)
+        test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False, num_workers=4)
         if is_ground_truth:
             calib_scores, _ = saps_scores_ground_truth(model, calib_loader, alpha, lambda_, device, is_imagenet=True)
         else:
-            calib_scores, _ = saps_scores_model(model, calib_loader, alpha, lambda_, device, is_imagenet=True)
+            calib_scores, _ = saps_scores_model(model, calib_loader, alpha, lambda_, device)
         q_hat = np.quantile(calib_scores, 1 - alpha)
         if is_ground_truth:
             aps, aps_labels, true_labels = saps_classification_ground_truth(model, test_loader, q_hat, lambda_, device
@@ -250,11 +251,12 @@ def saps_imagenet_real_hist(model, dataset, device, lambda_=0.1, num_runs=10, al
             aps, aps_labels, true_labels, real_probs = saps_classification_model(model, test_loader, q_hat, lambda_,
                                                                                  device, is_imagenet=True)
         avg_set_size, avg_coverage = eval_aps_real_probs(aps_labels, true_labels)
+        # print(f"q_hat: {q_hat:.2f}, set size: {avg_set_size:.2f}, Coverage: {avg_coverage:.4f}")
         if is_ground_truth:
             sum_real_probs = [sum(probs) for probs in aps]
             avg_real_prob = np.mean(sum_real_probs)
         else:
-            sum_real_probs = [sum(real_prob) for real_prob in real_probs]
+            sum_real_probs = [sum(real_prob) for real_prob in real_probs if real_prob is not None]
             avg_real_prob = np.mean(sum_real_probs)
 
         all_avg_set_sizes.append(avg_set_size)
@@ -295,17 +297,17 @@ def saps_imagenet_real_scatter(model, dataset, device, lambda_=0.1, num_runs=10,
     for i in range(num_runs):
         print(f"Running experiment {i + 1}/{num_runs}...")
         calib_dataset, test_dataset = split_data_set_imagenet_real(dataset, random_seed=i)
-        calib_loader = DataLoader(calib_dataset, batch_size=32, shuffle=False)
-        test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False)
-        calib_scores, _ = saps_scores_model(model, calib_loader, alpha, lambda_, device, is_imagenet=True)
+        calib_loader = DataLoader(calib_dataset, batch_size=32, shuffle=False, num_workers=4)
+        test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False, num_workers=4)
+        calib_scores, _ = saps_scores_model(model, calib_loader, alpha, lambda_, device)
         q_hat = np.quantile(calib_scores, 1 - alpha)
         aps, aps_labels, true_labels, real_probs = saps_classification_model(model, test_loader, q_hat, lambda_,
                                                                              device, is_imagenet=True)
         all_pred_probs.extend(aps)
         all_real_probs.extend(real_probs)
         avg_set_size, avg_coverage = eval_aps_real_probs(aps_labels, true_labels)
-        sum_real_probs = [sum(probs) for probs in real_probs]
-        avg_real_prob = np.mean(sum_real_probs)  # average real probability
+        sum_real_probs = [sum(real_prob) if real_prob is not None else None for real_prob in real_probs]
+        avg_real_prob = np.mean([sum for sum in sum_real_probs if sum is not None])  # average real probability
 
         all_avg_set_sizes.append(avg_set_size)
         all_avg_coverages.append(avg_coverage)
@@ -327,5 +329,5 @@ def saps_imagenet_real_scatter(model, dataset, device, lambda_=0.1, num_runs=10,
     print(f"Final Average Prediction Set Size: {final_avg_set_size:.2f} ± {final_set_size_std:.2f}")
     print(f"Final Average Coverage: {final_avg_coverage:.4f} ± {final_coverage_std:.4f}")
     print(f"Final Average Real Probability: {final_avg_real_prob:.4f} ± {final_real_prob_std:.4f}")
-    scatter_synthetic(all_pred_probs, all_real_probs, all_real_probs_distribution)
+    scatter_synthetic(all_pred_probs, all_real_probs, all_real_probs_distribution, is_imagenet=True)
 

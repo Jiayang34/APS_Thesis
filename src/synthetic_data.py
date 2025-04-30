@@ -136,11 +136,11 @@ def train_simple_model(model, train_loader, val_loader, epochs=10, lr=0.001, dev
             f"| Val Loss: {val_loss / val_total:.4f}, Acc: {val_correct / val_total:.4f}")
 
 
-def check_tvd(model, dataset, device='cpu'):
+def check_tvd(model, dataloader, device='cpu'):
     total_tvds = 0.0
     total_samples = 0
     with torch.no_grad():
-        for images, true_labels, real_probs in dataset:
+        for images, true_labels, real_probs in dataloader:
             images, real_probs = images.to(device), real_probs.to(device)
             outputs = model(images)
             pred_probs = torch.softmax(outputs, dim=1)

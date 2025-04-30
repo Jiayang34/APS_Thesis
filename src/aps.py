@@ -112,8 +112,8 @@ def aps_test(model, dataset, device, num_runs=10, alpha=0.1):
         calib_dataset, test_dataset = split_data_set(dataset, random_seed=i)
 
         # load data set respectively
-        calib_loader = DataLoader(calib_dataset, batch_size=32, shuffle=False)
-        test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False)
+        calib_loader = DataLoader(calib_dataset, batch_size=32, shuffle=False, num_workers=4)
+        test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False, num_workers=4)
 
         # calculate q_hat
         calib_scores, _ = aps_scores(model, calib_loader, alpha, device)
