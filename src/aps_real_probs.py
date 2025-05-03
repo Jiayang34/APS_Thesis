@@ -728,12 +728,12 @@ def scatter_synthetic(aps, real_probs, all_real_probs_distribution, is_imagenet=
     total_samples = len(all_real_probs_distribution)
     count_region_1 = np.sum((x_vals >= 0) & (x_vals <= 0.5) & (y_vals >= 0.8) & (y_vals <= 1.0))
     count_region_2 = np.sum((x_vals > 0.5) & (x_vals <= 1.0) & (y_vals >= 0.8) & (y_vals <= 1.0))
-    count_region_3 = np.sum((x_vals >= 0) & (x_vals <= 0.5) & (y_vals >= 0) & (y_vals < 0.8))
+    count_region_3 = np.sum((x_vals >= 0) & (x_vals <= 0.9) & (y_vals >= 0) & (y_vals < 0.8))
 
     print("\n=== Count Regions Summary ===")
     print(f"{count_region_1} ({count_region_1 / total_samples:.1%}) samples in Count Region 1 [x:0-0.5, y:0.8-1.0]")
     print(f"{count_region_2} ({count_region_2 / total_samples:.1%}) samples in Count Region 2 [x:0.5-1.0, y:0.8-1.0]")
-    print(f"{count_region_3} ({count_region_3 / total_samples:.1%}) samples in Count Region 3 [x:0-0.5, y:0-0.8]")
+    print(f"{count_region_3} ({count_region_3 / total_samples:.1%}) samples in Count Region 3 [x:0-0.9, y:0-0.8]")
 
     # samples information display
     print("\n=== Sample Points in Specific Regions ===")

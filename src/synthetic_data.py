@@ -154,6 +154,30 @@ def check_tvd(model, dataloader, device='cpu'):
     print(f"Average Total Variation Distance: {mean_tvd: .4f}")
 
 
+def check_tvd_imagenet(model, dataloader, device='cpu'):
+    total_tvds = 0.0
+    total_samples = 0
+    with torch.no_grad():
+        for images, true_labels, real_probs in dataloader:
+            valid_samples = real_probs.sum(dim=1) != 0
+            if valid_samples.sum() == 0:
+                continue  # if this batch has no valid samples -> next batch
+            images = images[valid_samples]
+            real_probs = real_probs[valid_samples]
+
+            images, real_probs = images.to(device), real_probs.to(device)
+            outputs = model(images)
+            pred_probs = torch.softmax(outputs, dim=1)
+
+            tvds = 0.5 * torch.sum(torch.abs(pred_probs - real_probs), dim=1)
+            total_tvds += tvds.sum().item()
+            total_samples += images.size(0)
+
+    mean_tvd = total_tvds / total_samples
+    print(f"Total Variation Distance: {total_tvds: .4f}")
+    print(f"Average Total Variation Distance: {mean_tvd: .4f}")
+
+
 class SyntheticDataset_and_Probs(Dataset):
     def __init__(self, features, labels, real_probs):
         self.features = features
