@@ -122,8 +122,8 @@ def raps_test(model, dataset, device, num_runs=10, alpha=0.1, lambda_ =0.1, k_re
         calib_dataset, test_dataset = split_data_set(dataset, random_seed=i)
 
         # load data set respectively
-        calib_loader = DataLoader(calib_dataset, batch_size=32, shuffle=False, num_workers=4)
-        test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False, num_workers=4)
+        calib_loader = DataLoader(calib_dataset, batch_size=32, shuffle=False)
+        test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False)
 
         # calculate q_hat
         calib_scores, _ = raps_scores(model, calib_loader, alpha, lambda_, k_reg, device)
