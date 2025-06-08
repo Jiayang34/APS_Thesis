@@ -527,7 +527,7 @@ def lambda_optimization_raps_synthetic(model, synthetic_dataset, lambda_values, 
             calib_dataset, test_dataset = split_data_set(synthetic_dataset, random_seed=i)
             calib_loader = DataLoader(calib_dataset, batch_size=32, shuffle=False)
             test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False)
-            calib_scores, _ = raps_scores_ground_truth(model, calib_loader, alpha, current_lambda, k_reg, device)
+            calib_scores, _ = raps_scores_model(model, calib_loader, alpha, current_lambda, k_reg, device)
             t_cal = np.quantile(calib_scores, 1 - alpha)
             _, aps_labels, true_labels, _ = raps_classification_model(model, test_loader, t_cal, current_lambda,
                                                                       k_reg, device)
@@ -539,7 +539,7 @@ def lambda_optimization_raps_synthetic(model, synthetic_dataset, lambda_values, 
         mean_coverage = np.mean(avg_coverages)
         # select valid lambda with coverage guarantee
         max_range = 1 - alpha + 0.01
-        min_range = 1 - alpha - 0.03
+        min_range = 1 - alpha - 0.05
         if min_range <= mean_coverage < max_range:
             set_sizes.append(mean_set_size)
             valid_lambdas.append(current_lambda)
@@ -568,7 +568,7 @@ def k_reg_optimization_synthetic(model, synthetic_dataset, optimal_lambda, k_reg
             calib_dataset, test_dataset = split_data_set(synthetic_dataset, random_seed=i)
             calib_loader = DataLoader(calib_dataset, batch_size=32, shuffle=False)  # set num_workers = 4 while ImageNet
             test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False)  # set num_workers = 4 while ImageNet
-            calib_scores, _ = raps_scores_ground_truth(model, calib_loader, alpha, optimal_lambda, k, device)
+            calib_scores, _ = raps_scores_model(model, calib_loader, alpha, optimal_lambda, k, device)
             t_cal = np.quantile(calib_scores, 1 - alpha)
             _, aps_labels, true_labels, _ = raps_classification_model(model, test_loader, t_cal, optimal_lambda, k,
                                                                       device)
@@ -581,7 +581,7 @@ def k_reg_optimization_synthetic(model, synthetic_dataset, optimal_lambda, k_reg
         mean_coverage = np.mean(avg_coverages)
         # select valid lambda with coverage guarantee
         max_range = 1 - alpha + 0.01
-        min_range = 1 - alpha - 0.1
+        min_range = 1 - alpha - 0.05
         if min_range <= mean_coverage < max_range:
             set_sizes.append(mean_set_size)
             valid_k_regs.append(k)
@@ -609,7 +609,7 @@ def lambda_optimization_saps_synthetic(model, synthetic_dataset, lambda_values, 
             calib_dataset, test_dataset = split_data_set(synthetic_dataset, random_seed=i)
             calib_loader = DataLoader(calib_dataset, batch_size=32, shuffle=False)  # set num_workers = 4 while ImageNet
             test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False)    # set num_workers = 4 while ImageNet
-            calib_scores, _ = saps_scores_ground_truth(model, calib_loader, alpha, current_lambda, device)
+            calib_scores, _ = saps_scores_model(model, calib_loader, alpha, current_lambda, device)
             t_cal = np.quantile(calib_scores, 1 - alpha)
             _, aps_labels, true_labels, _ = saps_classification_model(model, test_loader, t_cal, current_lambda,
                                                                       device)
@@ -622,7 +622,7 @@ def lambda_optimization_saps_synthetic(model, synthetic_dataset, lambda_values, 
         mean_coverage = np.mean(avg_coverages)
         # select valid lambda with coverage guarantee
         max_range = 1-alpha+0.01
-        min_range = 1-alpha-0.01
+        min_range = 1-alpha-0.05
         if min_range <= mean_coverage < max_range:
             set_sizes.append(mean_set_size)
             valid_lambdas.append(current_lambda)

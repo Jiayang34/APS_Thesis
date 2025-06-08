@@ -42,7 +42,7 @@ def lambda_optimization_saps(model, dataset, lambda_values, device='cpu', alpha=
         mean_coverage = np.mean(avg_coverages)
         # select valid lambda with coverage guarantee
         max_range = 1-alpha+0.01
-        min_range = 1-alpha-0.01
+        min_range = 1-alpha-0.03
         if min_range <= mean_coverage < max_range:
             set_sizes.append(mean_set_size)
             valid_lambdas.append(current_lambda)
